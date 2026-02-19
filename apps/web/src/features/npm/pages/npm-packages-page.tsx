@@ -203,7 +203,7 @@ export default function NpmPackagesPage() {
             <PackageRow
               key={pkg.id}
               pkg={pkg}
-              onClick={() => navigate(`/npm/${pkg.name}`)}
+              onClick={() => navigate(`/npm/${encodeURIComponent(pkg.name)}`)}
               selectionMode={selectionMode}
               isSelected={selection.selected.has(pkg.id)}
               onToggle={() => selection.toggle(pkg.id)}

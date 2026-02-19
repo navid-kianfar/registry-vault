@@ -26,6 +26,7 @@ const RegistryConnections = lazy(() => import('@/features/settings/components/re
 const StorageSettings = lazy(() => import('@/features/settings/components/storage-settings'));
 const RetentionPolicies = lazy(() => import('@/features/settings/components/retention-policies'));
 const WebhooksList = lazy(() => import('@/features/settings/components/webhooks-list'));
+const CredentialsManagement = lazy(() => import('@/features/settings/components/credentials-management'));
 const LoginPage = lazy(() => import('@/features/auth/pages/login-page'));
 const RegistryPage = lazy(() => import('@/features/registry/pages/registry-page'));
 
@@ -57,9 +58,10 @@ export const router = createBrowserRouter([
       { path: 'npm/:packageName/versions/:version', element: <LazyPage><NpmVersionDetailPage /></LazyPage> },
       // Registry-scoped routes (multiple registries of same kind)
       { path: 'registry/:connectionId', element: <LazyPage><RegistryPage /></LazyPage> },
-      { path: 'registry/:connectionId/:repositoryId', element: <LazyPage><DockerRepositoryDetailPage /></LazyPage> },
-      { path: 'registry/:connectionId/:repositoryId/tags/:tagName', element: <LazyPage><DockerTagDetailPage /></LazyPage> },
-      { path: 'registry/:connectionId/:packageId/versions/:version', element: <LazyPage><NuGetVersionDetailPage /></LazyPage> },
+      { path: 'registry/:connectionId/docker/:repositoryId', element: <LazyPage><DockerRepositoryDetailPage /></LazyPage> },
+      { path: 'registry/:connectionId/docker/:repositoryId/tags/:tagName', element: <LazyPage><DockerTagDetailPage /></LazyPage> },
+      { path: 'registry/:connectionId/nuget/:packageId', element: <LazyPage><NuGetPackageDetailPage /></LazyPage> },
+      { path: 'registry/:connectionId/nuget/:packageId/versions/:version', element: <LazyPage><NuGetVersionDetailPage /></LazyPage> },
       { path: 'registry/:connectionId/npm/:packageName', element: <LazyPage><NpmPackageDetailPage /></LazyPage> },
       { path: 'registry/:connectionId/npm/:packageName/versions/:version', element: <LazyPage><NpmVersionDetailPage /></LazyPage> },
       { path: 'access/users', element: <LazyPage><UsersPage /></LazyPage> },
@@ -76,6 +78,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="general" replace /> },
           { path: 'general', element: <LazyPage><GeneralSettingsForm /></LazyPage> },
           { path: 'registries', element: <LazyPage><RegistryConnections /></LazyPage> },
+          { path: 'credentials', element: <LazyPage><CredentialsManagement /></LazyPage> },
           { path: 'storage', element: <LazyPage><StorageSettings /></LazyPage> },
           { path: 'retention', element: <LazyPage><RetentionPolicies /></LazyPage> },
           { path: 'webhooks', element: <LazyPage><WebhooksList /></LazyPage> },

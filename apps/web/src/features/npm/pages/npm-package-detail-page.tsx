@@ -266,7 +266,7 @@ export default function NpmPackageDetailPage() {
                   key={v.version}
                   v={v}
                   pkg={pkg}
-                  onClick={() => navigate(`/npm/${packageName}/versions/${v.version}`)}
+                  onClick={() => navigate(`/npm/${encodeURIComponent(packageName!)}/versions/${v.version}`)}
                   selectionMode={selectionMode}
                   isSelected={selection.selected.has(v.version)}
                   onToggle={() => selection.toggle(v.version)}

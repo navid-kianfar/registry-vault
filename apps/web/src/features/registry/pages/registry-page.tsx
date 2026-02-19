@@ -49,7 +49,7 @@ function DockerList({ connectionId, connectionName }: { connectionId: string; co
           data.items.map((repo: IDockerRepository) => (
             <button
               key={repo.id}
-              onClick={() => navigate(`/registry/${connectionId}/${repo.id}`)}
+              onClick={() => navigate(`/registry/${connectionId}/docker/${repo.id}`)}
               className="w-full flex items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors text-left group"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--docker))]/10">
@@ -143,7 +143,7 @@ function NuGetList({ connectionId, connectionName }: { connectionId: string; con
           data.items.map((pkg: INuGetPackage) => (
             <button
               key={pkg.id}
-              onClick={() => navigate(`/registry/${connectionId}/${pkg.id}`)}
+              onClick={() => navigate(`/registry/${connectionId}/nuget/${pkg.id}`)}
               className="w-full flex items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors text-left group"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--nuget))]/10">
@@ -245,7 +245,7 @@ function NpmList({ connectionId, connectionName }: { connectionId: string; conne
           data.items.map((pkg: INpmPackage) => (
             <button
               key={pkg.id}
-              onClick={() => navigate(`/registry/${connectionId}/npm/${pkg.name}`)}
+              onClick={() => navigate(`/registry/${connectionId}/npm/${encodeURIComponent(pkg.name)}`)}
               className="w-full flex items-center gap-4 p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors text-left group"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--npm))]/10">

@@ -44,7 +44,7 @@ export default function NpmVersionDetailPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/npm/${packageName}`)} className="gap-1.5">
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/npm/${encodeURIComponent(packageName!)}`)} className="gap-1.5">
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
         <Skeleton className="h-8 w-64" />
@@ -60,7 +60,7 @@ export default function NpmVersionDetailPage() {
   if (!versionData) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/npm/${packageName}`)} className="gap-1.5">
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/npm/${encodeURIComponent(packageName!)}`)} className="gap-1.5">
           <ArrowLeft className="h-4 w-4" /> Back to Package
         </Button>
         <div className="py-12 text-center text-muted-foreground">Version not found.</div>
@@ -75,7 +75,7 @@ export default function NpmVersionDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Button variant="ghost" size="sm" onClick={() => navigate(`/npm/${packageName}`)} className="gap-1.5">
+      <Button variant="ghost" size="sm" onClick={() => navigate(`/npm/${encodeURIComponent(packageName!)}`)} className="gap-1.5">
         <ArrowLeft className="h-4 w-4" /> Back to {pkg?.name || 'Package'}
       </Button>
 

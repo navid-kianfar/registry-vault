@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 const settingsTabs = [
   { label: 'General', path: '/settings/general' },
   { label: 'Registries', path: '/settings/registries' },
+  { label: 'Credentials', path: '/settings/credentials' },
   { label: 'Storage', path: '/settings/storage' },
   { label: 'Retention', path: '/settings/retention' },
   { label: 'Webhooks', path: '/settings/webhooks' },
