@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@registryvault/shared": ["../../packages/shared/src"],
+      "@registryvault/shared/*": ["../../packages/shared/src/*"]
+    },
+    "noEmit": true
+  },
+  "include": ["src", "../../packages/shared/src"]
+}

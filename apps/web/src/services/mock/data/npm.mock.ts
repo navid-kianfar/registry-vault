@@ -1,0 +1,713 @@
+import type { INpmPackage, INpmPackageVersion } from '@registryvault/shared';
+
+export const npmPackages: INpmPackage[] = [
+  {
+    id: 'npm-pkg-1',
+    name: '@myorg/ui-components',
+    description: 'Shared React UI component library with accessible, themeable components built on Radix UI primitives.',
+    latestVersion: '4.1.0',
+    author: 'David Kumar',
+    license: 'MIT',
+    totalDownloads: 234500,
+    keywords: ['react', 'components', 'ui', 'design-system', 'accessibility'],
+    repository: 'https://github.com/myorg/ui-components',
+    homepage: 'https://design.myorg.io',
+    readmeContent: `# @myorg/ui-components
+
+A comprehensive React UI component library built on Radix UI primitives.
+
+## Installation
+
+\`\`\`bash
+npm install @myorg/ui-components
+\`\`\`
+
+## Usage
+
+\`\`\`tsx
+import { Button, Card, Dialog } from '@myorg/ui-components';
+
+function App() {
+  return (
+    <Card>
+      <Button variant="primary">Click me</Button>
+    </Card>
+  );
+}
+\`\`\`
+
+## Features
+
+- 40+ accessible components
+- Dark mode support
+- Fully typed with TypeScript
+- Tree-shakeable exports
+`,
+    distTags: { latest: '4.1.0', next: '4.2.0-beta.1', canary: '4.2.0-alpha.3' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-06-20T10:00:00Z',
+    updatedAt: '2026-02-19T07:42:30Z',
+  },
+  {
+    id: 'npm-pkg-2',
+    name: '@myorg/utils',
+    description: 'Shared utility functions for string manipulation, date formatting, type guards, and common helpers.',
+    latestVersion: '2.6.0',
+    author: 'Chris Taylor',
+    license: 'MIT',
+    totalDownloads: 312800,
+    keywords: ['utils', 'helpers', 'typescript', 'utilities'],
+    repository: 'https://github.com/myorg/utils',
+    distTags: { latest: '2.6.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-06-15T08:00:00Z',
+    updatedAt: '2026-02-05T11:00:00Z',
+  },
+  {
+    id: 'npm-pkg-3',
+    name: '@myorg/hooks',
+    description: 'Collection of custom React hooks for common patterns: data fetching, form state, media queries, and more.',
+    latestVersion: '2.3.0',
+    author: 'David Kumar',
+    license: 'MIT',
+    totalDownloads: 187200,
+    keywords: ['react', 'hooks', 'custom-hooks', 'typescript'],
+    repository: 'https://github.com/myorg/hooks',
+    readmeContent: `# @myorg/hooks
+
+Custom React hooks for common application patterns.
+
+## Hooks
+
+- \`useAsync\` - Manage async operations with loading/error states
+- \`useDebounce\` - Debounce rapidly changing values
+- \`useLocalStorage\` - Persist state in localStorage
+- \`useMediaQuery\` - Responsive design breakpoints
+- \`usePrevious\` - Track previous value of a variable
+- \`useIntersectionObserver\` - Detect element visibility
+`,
+    distTags: { latest: '2.3.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-07-01T09:00:00Z',
+    updatedAt: '2026-02-19T06:45:00Z',
+  },
+  {
+    id: 'npm-pkg-4',
+    name: '@myorg/api-client',
+    description: 'Type-safe HTTP client wrapper built on Axios with automatic retry, token refresh, and request deduplication.',
+    latestVersion: '1.9.0',
+    author: 'Jane Smith',
+    license: 'MIT',
+    totalDownloads: 156400,
+    keywords: ['api', 'http', 'client', 'axios', 'typescript', 'rest'],
+    repository: 'https://github.com/myorg/api-client',
+    distTags: { latest: '1.9.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-07-15T10:00:00Z',
+    updatedAt: '2026-01-20T14:00:00Z',
+  },
+  {
+    id: 'npm-pkg-5',
+    name: '@myorg/auth',
+    description: 'Frontend authentication module with OAuth2/OIDC support, token management, and auth context provider.',
+    latestVersion: '3.0.0',
+    author: 'Jane Smith',
+    license: 'MIT',
+    totalDownloads: 142100,
+    keywords: ['auth', 'oauth2', 'oidc', 'react', 'authentication'],
+    repository: 'https://github.com/myorg/auth-js',
+    distTags: { latest: '3.0.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-07-20T11:00:00Z',
+    updatedAt: '2026-02-12T09:30:00Z',
+  },
+  {
+    id: 'npm-pkg-6',
+    name: '@myorg/forms',
+    description: 'Form management library with validation, field arrays, conditional fields, and React Hook Form integration.',
+    latestVersion: '1.7.0',
+    author: 'David Kumar',
+    license: 'MIT',
+    totalDownloads: 98700,
+    keywords: ['forms', 'react', 'validation', 'react-hook-form'],
+    repository: 'https://github.com/myorg/forms',
+    distTags: { latest: '1.7.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-08-01T08:00:00Z',
+    updatedAt: '2026-01-30T16:00:00Z',
+  },
+  {
+    id: 'npm-pkg-7',
+    name: '@myorg/icons',
+    description: 'SVG icon library with 500+ icons optimized for tree-shaking, available as React components.',
+    latestVersion: '2.2.0',
+    author: 'Emily Davis',
+    license: 'MIT',
+    totalDownloads: 178900,
+    keywords: ['icons', 'svg', 'react', 'components'],
+    repository: 'https://github.com/myorg/icons',
+    homepage: 'https://icons.myorg.io',
+    distTags: { latest: '2.2.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-07-10T10:00:00Z',
+    updatedAt: '2026-02-01T08:00:00Z',
+  },
+  {
+    id: 'npm-pkg-8',
+    name: '@myorg/theme',
+    description: 'Design tokens, theme configuration, and CSS-in-JS utilities for consistent styling across applications.',
+    latestVersion: '3.1.0',
+    author: 'David Kumar',
+    license: 'MIT',
+    totalDownloads: 165300,
+    keywords: ['theme', 'design-tokens', 'css-in-js', 'styling', 'dark-mode'],
+    repository: 'https://github.com/myorg/theme',
+    readmeContent: `# @myorg/theme
+
+Design tokens and theming utilities for MyOrg applications.
+
+## Features
+
+- Light and dark mode tokens
+- Spacing, typography, and color scales
+- CSS custom properties output
+- Tailwind CSS preset included
+`,
+    distTags: { latest: '3.1.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-06-25T09:00:00Z',
+    updatedAt: '2026-02-10T10:00:00Z',
+  },
+  {
+    id: 'npm-pkg-9',
+    name: '@myorg/testing',
+    description: 'Testing utilities with custom render functions, mock providers, and assertion helpers for React Testing Library.',
+    latestVersion: '1.5.0',
+    author: 'Chris Taylor',
+    license: 'MIT',
+    totalDownloads: 89400,
+    keywords: ['testing', 'react-testing-library', 'jest', 'vitest', 'test-utils'],
+    repository: 'https://github.com/myorg/testing-js',
+    distTags: { latest: '1.5.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-08-15T08:00:00Z',
+    updatedAt: '2026-01-15T11:00:00Z',
+  },
+  {
+    id: 'npm-pkg-10',
+    name: '@myorg/config',
+    description: 'Shared configuration for ESLint, Prettier, TypeScript, and Vite across all frontend projects.',
+    latestVersion: '2.0.0',
+    author: 'Chris Taylor',
+    license: 'MIT',
+    totalDownloads: 201600,
+    keywords: ['config', 'eslint', 'prettier', 'typescript', 'vite'],
+    repository: 'https://github.com/myorg/config',
+    distTags: { latest: '2.0.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-06-15T08:00:00Z',
+    updatedAt: '2026-02-08T14:00:00Z',
+  },
+  {
+    id: 'npm-pkg-11',
+    name: '@myorg/logger',
+    description: 'Browser-compatible structured logger with remote log shipping, breadcrumbs, and error tracking integration.',
+    latestVersion: '1.4.0',
+    author: 'Jane Smith',
+    license: 'MIT',
+    totalDownloads: 76500,
+    keywords: ['logging', 'logger', 'browser', 'structured-logging', 'error-tracking'],
+    repository: 'https://github.com/myorg/logger-js',
+    distTags: { latest: '1.4.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-09-01T10:00:00Z',
+    updatedAt: '2026-01-25T09:00:00Z',
+  },
+  {
+    id: 'npm-pkg-12',
+    name: '@myorg/state',
+    description: 'State management library built on Zustand with devtools, persistence middleware, and typed store creators.',
+    latestVersion: '2.1.0',
+    author: 'David Kumar',
+    license: 'MIT',
+    totalDownloads: 112300,
+    keywords: ['state', 'zustand', 'state-management', 'react', 'store'],
+    repository: 'https://github.com/myorg/state',
+    distTags: { latest: '2.1.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-07-25T09:00:00Z',
+    updatedAt: '2026-02-03T16:00:00Z',
+  },
+  {
+    id: 'npm-pkg-13',
+    name: '@myorg/router',
+    description: 'Routing utilities and route configuration helpers built on React Router with type-safe route params.',
+    latestVersion: '1.6.0',
+    author: 'Chris Taylor',
+    license: 'MIT',
+    totalDownloads: 94200,
+    keywords: ['router', 'react-router', 'routing', 'navigation', 'typescript'],
+    repository: 'https://github.com/myorg/router',
+    distTags: { latest: '1.6.0' },
+    registryConnectionId: 'conn-3',
+    createdAt: '2025-08-10T11:00:00Z',
+    updatedAt: '2026-01-18T13:00:00Z',
+  },
+  {
+    id: 'npm-pkg-14',
+    name: '@myorg/i18n',
+    description: 'Internationalization framework with lazy-loaded translations, pluralization, and date/number formatting.',
+    latestVersion: '1.3.0',
+    author: 'Emily Davis',
+    license: 'MIT',
+    totalDownloads: 54800,
+    keywords: ['i18n', 'internationalization', 'localization', 'translations', 'react'],
+    repository: 'https://github.com/myorg/i18n',
+    distTags: { latest: '1.3.0' },
+    registryConnectionId: 'conn-5',
+    createdAt: '2025-10-01T09:00:00Z',
+    updatedAt: '2025-12-20T10:00:00Z',
+  },
+  {
+    id: 'npm-pkg-15',
+    name: '@myorg/analytics',
+    description: 'Analytics abstraction layer supporting multiple providers (GA4, Mixpanel, Amplitude) with unified API.',
+    latestVersion: '1.2.0',
+    author: 'Jane Smith',
+    license: 'MIT',
+    totalDownloads: 67100,
+    keywords: ['analytics', 'tracking', 'events', 'google-analytics', 'mixpanel'],
+    repository: 'https://github.com/myorg/analytics-js',
+    distTags: { latest: '1.2.0' },
+    registryConnectionId: 'conn-5',
+    createdAt: '2025-09-15T10:00:00Z',
+    updatedAt: '2026-01-10T15:00:00Z',
+  },
+];
+
+export const npmVersions: Record<string, INpmPackageVersion[]> = {
+  'npm-pkg-1': [
+    {
+      version: '4.1.0',
+      publishedAt: '2026-02-19T07:42:30Z',
+      downloads: 28400,
+      sizeBytes: 524_288,
+      unpackedSizeBytes: 2_097_152,
+      shasum: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0',
+      integrity: 'sha512-jK8vL2mN4pQ6rS8tU0wX2yZ4bD6fH8jK0lM2nP4qR6sT8uV0wX2yZ4bD6fH8jK0lM2nP4qR6sT8uV0wX2yZ4w==',
+      nodeEngine: '>=18.0.0',
+      dependencies: {
+        '@radix-ui/react-dialog': '^1.0.5',
+        '@radix-ui/react-dropdown-menu': '^2.0.6',
+        '@radix-ui/react-popover': '^1.0.7',
+        '@radix-ui/react-tooltip': '^1.0.7',
+        'class-variance-authority': '^0.7.0',
+        'clsx': '^2.1.0',
+        'tailwind-merge': '^2.2.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+        'react-dom': '>=18.0.0',
+      },
+    },
+    {
+      version: '4.0.0',
+      publishedAt: '2026-01-15T10:00:00Z',
+      downloads: 89200,
+      sizeBytes: 512_000,
+      unpackedSizeBytes: 2_048_000,
+      shasum: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1',
+      integrity: 'sha512-aB3cD5eF7gH9iJ1kL3mN5oP7qR9sT1uV3wX5yZ7aB9cD1eF3gH5iJ7kL9mN1oP3qR5sT7uV9wX1yZ3aB5cD7w==',
+      nodeEngine: '>=18.0.0',
+      dependencies: {
+        '@radix-ui/react-dialog': '^1.0.5',
+        '@radix-ui/react-dropdown-menu': '^2.0.6',
+        'class-variance-authority': '^0.7.0',
+        'clsx': '^2.1.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+        'react-dom': '>=18.0.0',
+      },
+    },
+    {
+      version: '3.9.0',
+      publishedAt: '2025-11-20T14:00:00Z',
+      downloads: 67800,
+      sizeBytes: 491_520,
+      unpackedSizeBytes: 1_966_080,
+      shasum: 'c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2',
+      integrity: 'sha512-dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI==',
+      nodeEngine: '>=16.0.0',
+      dependencies: {
+        '@radix-ui/react-dialog': '^1.0.4',
+        'class-variance-authority': '^0.7.0',
+        'clsx': '^2.0.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=17.0.0',
+        'react-dom': '>=17.0.0',
+      },
+    },
+    {
+      version: '4.2.0-beta.1',
+      publishedAt: '2026-02-18T16:00:00Z',
+      downloads: 1200,
+      sizeBytes: 540_672,
+      unpackedSizeBytes: 2_162_688,
+      shasum: 'd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3',
+      integrity: 'sha512-gH9iJ1kL3mN5oP7qR9sT1uV3wX5yZ7aB9cD1eF3gH5iJ7kL9mN1oP3qR5sT7uV9wX1yZ3aB5cD7eF9gH1iJ3k==',
+      nodeEngine: '>=18.0.0',
+      dependencies: {
+        '@radix-ui/react-dialog': '^1.1.0',
+        '@radix-ui/react-dropdown-menu': '^2.1.0',
+        '@radix-ui/react-popover': '^1.1.0',
+        '@radix-ui/react-tooltip': '^1.1.0',
+        '@radix-ui/react-tabs': '^1.1.0',
+        'class-variance-authority': '^0.7.0',
+        'clsx': '^2.1.0',
+        'tailwind-merge': '^2.2.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+        'react-dom': '>=18.0.0',
+      },
+    },
+  ],
+  'npm-pkg-2': [
+    {
+      version: '2.6.0',
+      publishedAt: '2026-02-05T11:00:00Z',
+      downloads: 45600,
+      sizeBytes: 102_400,
+      unpackedSizeBytes: 409_600,
+      shasum: 'e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4',
+      integrity: 'sha512-jK1lM3nO5pQ7rS9tU1vW3xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO==',
+      dependencies: {
+        'date-fns': '^3.3.0',
+      },
+      devDependencies: {},
+      peerDependencies: {},
+    },
+    {
+      version: '2.5.0',
+      publishedAt: '2025-12-10T09:00:00Z',
+      downloads: 112400,
+      sizeBytes: 98_304,
+      unpackedSizeBytes: 393_216,
+      shasum: 'f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5',
+      integrity: 'sha512-lM3nO5pQ7rS9tU1vW3xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ==',
+      dependencies: {
+        'date-fns': '^3.0.0',
+      },
+      devDependencies: {},
+      peerDependencies: {},
+    },
+    {
+      version: '2.4.0',
+      publishedAt: '2025-09-25T08:00:00Z',
+      downloads: 154800,
+      sizeBytes: 94_208,
+      unpackedSizeBytes: 376_832,
+      shasum: 'a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6',
+      integrity: 'sha512-nO5pQ7rS9tU1vW3xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS==',
+      dependencies: {
+        'date-fns': '^2.30.0',
+      },
+      devDependencies: {},
+      peerDependencies: {},
+    },
+  ],
+  'npm-pkg-3': [
+    {
+      version: '2.3.0',
+      publishedAt: '2026-02-19T06:45:00Z',
+      downloads: 18900,
+      sizeBytes: 81_920,
+      unpackedSizeBytes: 327_680,
+      shasum: 'b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7',
+      integrity: 'sha512-pQ7rS9tU1vW3xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU==',
+      nodeEngine: '>=18.0.0',
+      dependencies: {},
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+      },
+    },
+    {
+      version: '2.2.0',
+      publishedAt: '2026-01-08T10:00:00Z',
+      downloads: 72400,
+      sizeBytes: 77_824,
+      unpackedSizeBytes: 311_296,
+      shasum: 'c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8',
+      integrity: 'sha512-rS9tU1vW3xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW==',
+      nodeEngine: '>=18.0.0',
+      dependencies: {},
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+      },
+    },
+    {
+      version: '2.1.0',
+      publishedAt: '2025-10-20T14:00:00Z',
+      downloads: 96000,
+      sizeBytes: 73_728,
+      unpackedSizeBytes: 294_912,
+      shasum: 'd0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9',
+      integrity: 'sha512-tU1vW3xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY==',
+      nodeEngine: '>=16.0.0',
+      dependencies: {},
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=17.0.0',
+      },
+    },
+  ],
+  'npm-pkg-4': [
+    {
+      version: '1.9.0',
+      publishedAt: '2026-01-20T14:00:00Z',
+      downloads: 32100,
+      sizeBytes: 143_360,
+      unpackedSizeBytes: 573_440,
+      shasum: 'e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0',
+      integrity: 'sha512-vW3xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA==',
+      dependencies: {
+        'axios': '^1.6.0',
+        'axios-retry': '^4.0.0',
+      },
+      devDependencies: {},
+      peerDependencies: {},
+    },
+    {
+      version: '1.8.0',
+      publishedAt: '2025-11-05T09:00:00Z',
+      downloads: 67200,
+      sizeBytes: 139_264,
+      unpackedSizeBytes: 557_056,
+      shasum: 'f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1',
+      integrity: 'sha512-xY5zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC==',
+      dependencies: {
+        'axios': '^1.5.0',
+        'axios-retry': '^4.0.0',
+      },
+      devDependencies: {},
+      peerDependencies: {},
+    },
+    {
+      version: '1.7.0',
+      publishedAt: '2025-08-20T10:00:00Z',
+      downloads: 57100,
+      sizeBytes: 131_072,
+      unpackedSizeBytes: 524_288,
+      shasum: 'a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2',
+      integrity: 'sha512-zA7bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE==',
+      dependencies: {
+        'axios': '^1.4.0',
+      },
+      devDependencies: {},
+      peerDependencies: {},
+    },
+  ],
+  'npm-pkg-5': [
+    {
+      version: '3.0.0',
+      publishedAt: '2026-02-12T09:30:00Z',
+      downloads: 21800,
+      sizeBytes: 163_840,
+      unpackedSizeBytes: 655_360,
+      shasum: 'b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3',
+      integrity: 'sha512-bC9dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG==',
+      nodeEngine: '>=18.0.0',
+      dependencies: {
+        'oidc-client-ts': '^3.0.0',
+        '@myorg/api-client': '^1.8.0',
+        '@myorg/logger': '^1.3.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+      },
+    },
+    {
+      version: '2.5.0',
+      publishedAt: '2025-11-15T11:00:00Z',
+      downloads: 62400,
+      sizeBytes: 155_648,
+      unpackedSizeBytes: 622_592,
+      shasum: 'c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4',
+      integrity: 'sha512-dE1fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI==',
+      nodeEngine: '>=16.0.0',
+      dependencies: {
+        'oidc-client-ts': '^2.4.0',
+        '@myorg/api-client': '^1.7.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=17.0.0',
+      },
+    },
+    {
+      version: '2.4.0',
+      publishedAt: '2025-09-10T08:00:00Z',
+      downloads: 57900,
+      sizeBytes: 151_552,
+      unpackedSizeBytes: 606_208,
+      shasum: 'd6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5',
+      integrity: 'sha512-fG3hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK==',
+      nodeEngine: '>=16.0.0',
+      dependencies: {
+        'oidc-client-ts': '^2.3.0',
+        '@myorg/api-client': '^1.6.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=17.0.0',
+      },
+    },
+  ],
+  'npm-pkg-8': [
+    {
+      version: '3.1.0',
+      publishedAt: '2026-02-10T10:00:00Z',
+      downloads: 24500,
+      sizeBytes: 204_800,
+      unpackedSizeBytes: 819_200,
+      shasum: 'e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6',
+      integrity: 'sha512-hI5jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM==',
+      dependencies: {},
+      devDependencies: {},
+      peerDependencies: {},
+    },
+    {
+      version: '3.0.0',
+      publishedAt: '2025-12-01T09:00:00Z',
+      downloads: 68200,
+      sizeBytes: 196_608,
+      unpackedSizeBytes: 786_432,
+      shasum: 'f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7',
+      integrity: 'sha512-jK7lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM1nO==',
+      dependencies: {},
+      devDependencies: {},
+      peerDependencies: {},
+    },
+    {
+      version: '2.5.0',
+      publishedAt: '2025-09-15T08:00:00Z',
+      downloads: 72600,
+      sizeBytes: 184_320,
+      unpackedSizeBytes: 737_280,
+      shasum: 'a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8',
+      integrity: 'sha512-lM9nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM1nO3pQ==',
+      dependencies: {},
+      devDependencies: {},
+      peerDependencies: {},
+    },
+  ],
+  'npm-pkg-12': [
+    {
+      version: '2.1.0',
+      publishedAt: '2026-02-03T16:00:00Z',
+      downloads: 16800,
+      sizeBytes: 122_880,
+      unpackedSizeBytes: 491_520,
+      shasum: 'b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9',
+      integrity: 'sha512-nO1pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM1nO3pQ5rS==',
+      dependencies: {
+        'zustand': '^4.5.0',
+        'immer': '^10.0.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+      },
+    },
+    {
+      version: '2.0.0',
+      publishedAt: '2025-11-28T09:00:00Z',
+      downloads: 48200,
+      sizeBytes: 118_784,
+      unpackedSizeBytes: 475_136,
+      shasum: 'c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0',
+      integrity: 'sha512-pQ3rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM1nO3pQ5rS7tU==',
+      dependencies: {
+        'zustand': '^4.4.0',
+        'immer': '^10.0.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+      },
+    },
+    {
+      version: '1.8.0',
+      publishedAt: '2025-09-20T10:00:00Z',
+      downloads: 47300,
+      sizeBytes: 110_592,
+      unpackedSizeBytes: 442_368,
+      shasum: 'd2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1',
+      integrity: 'sha512-rS5tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM1nO3pQ5rS7tU9vW==',
+      dependencies: {
+        'zustand': '^4.3.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=17.0.0',
+      },
+    },
+  ],
+  'npm-pkg-15': [
+    {
+      version: '1.2.0',
+      publishedAt: '2026-01-10T15:00:00Z',
+      downloads: 12300,
+      sizeBytes: 94_208,
+      unpackedSizeBytes: 376_832,
+      shasum: 'e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2',
+      integrity: 'sha512-tU7vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM1nO3pQ5rS7tU9vW1xY==',
+      dependencies: {
+        '@myorg/logger': '^1.3.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=18.0.0',
+      },
+    },
+    {
+      version: '1.1.0',
+      publishedAt: '2025-11-01T10:00:00Z',
+      downloads: 32400,
+      sizeBytes: 90_112,
+      unpackedSizeBytes: 360_448,
+      shasum: 'f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3',
+      integrity: 'sha512-vW9xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM1nO3pQ5rS7tU9vW1xY3zA==',
+      dependencies: {
+        '@myorg/logger': '^1.2.0',
+      },
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=17.0.0',
+      },
+    },
+    {
+      version: '1.0.0',
+      publishedAt: '2025-09-15T10:00:00Z',
+      downloads: 22400,
+      sizeBytes: 81_920,
+      unpackedSizeBytes: 327_680,
+      shasum: 'a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4',
+      integrity: 'sha512-xY1zA3bC5dE7fG9hI1jK3lM5nO7pQ9rS1tU3vW5xY7zA9bC1dE3fG5hI7jK9lM1nO3pQ5rS7tU9vW1xY3zA5bC==',
+      dependencies: {},
+      devDependencies: {},
+      peerDependencies: {
+        'react': '>=17.0.0',
+      },
+    },
+  ],
+};

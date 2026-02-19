@@ -1,0 +1,58 @@
+import type { ITeam } from '@registryvault/shared';
+
+export const teams: ITeam[] = [
+  {
+    id: 'team-1',
+    name: 'Platform Engineering',
+    description: 'Core platform infrastructure and shared services team responsible for registry operations and developer tooling.',
+    memberCount: 4,
+    memberIds: ['user-1', 'user-10', 'user-4', 'user-8'],
+    createdAt: '2025-06-15T09:00:00Z',
+    updatedAt: '2026-01-20T14:30:00Z',
+  },
+  {
+    id: 'team-2',
+    name: 'Backend Team',
+    description: 'Server-side application development, API design, and database management.',
+    memberCount: 4,
+    memberIds: ['user-2', 'user-5', 'user-7', 'user-11'],
+    createdAt: '2025-06-15T09:00:00Z',
+    updatedAt: '2026-02-05T10:00:00Z',
+  },
+  {
+    id: 'team-3',
+    name: 'Frontend Team',
+    description: 'User interface development, design system maintenance, and client-side performance optimization.',
+    memberCount: 4,
+    memberIds: ['user-3', 'user-6', 'user-9', 'user-10'],
+    createdAt: '2025-07-01T10:00:00Z',
+    updatedAt: '2026-02-10T16:00:00Z',
+  },
+  {
+    id: 'team-4',
+    name: 'DevOps',
+    description: 'CI/CD pipeline management, container orchestration, and infrastructure automation.',
+    memberCount: 3,
+    memberIds: ['user-1', 'user-4', 'user-12'],
+    createdAt: '2025-06-15T09:00:00Z',
+    updatedAt: '2026-02-15T08:30:00Z',
+  },
+  {
+    id: 'team-5',
+    name: 'Security',
+    description: 'Application security, vulnerability management, and compliance auditing.',
+    memberCount: 2,
+    memberIds: ['user-11', 'user-8'],
+    createdAt: '2025-08-01T11:00:00Z',
+    updatedAt: '2026-01-28T13:45:00Z',
+  },
+  {
+    id: 'team-6',
+    name: 'QA',
+    description: 'Quality assurance, automated testing, and release validation.',
+    memberCount: 2,
+    memberIds: ['user-8', 'user-12'],
+    createdAt: '2025-09-01T08:00:00Z',
+    updatedAt: '2026-02-01T09:00:00Z',
+  },
+];
