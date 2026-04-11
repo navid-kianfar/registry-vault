@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="88" fill="#1e40af"/>
+  <!-- Outer box / package -->
+  <rect x="104" y="160" width="304" height="240" rx="16" fill="none" stroke="white" stroke-width="28"/>
+  <!-- Box lid -->
+  <rect x="84" y="128" width="344" height="56" rx="12" fill="white"/>
+  <!-- Center divider on lid -->
+  <rect x="236" y="128" width="40" height="56" fill="#1e40af"/>
+  <!-- Lock shackle -->
+  <path d="M204 128 V96 Q204 56 256 56 Q308 56 308 96 V128" fill="none" stroke="white" stroke-width="28" stroke-linecap="round"/>
+  <!-- Lock body -->
+  <rect x="196" y="248" width="120" height="96" rx="12" fill="white"/>
+  <!-- Keyhole -->
+  <circle cx="256" cy="284" r="18" fill="#1e40af"/>
+  <rect x="248" y="284" width="16" height="28" rx="4" fill="#1e40af"/>
+</svg>

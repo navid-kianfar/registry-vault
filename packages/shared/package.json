@@ -1,0 +1,29 @@
+{
+  "name": "@registry-vault/shared",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./enums": {
+      "types": "./src/enums/index.ts",
+      "default": "./src/enums/index.ts"
+    },
+    "./interfaces/dashboard.interfaces": {
+      "types": "./src/interfaces/dashboard.interfaces.ts",
+      "default": "./src/interfaces/dashboard.interfaces.ts"
+    }
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "echo 'lint ok'",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

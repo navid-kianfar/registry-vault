@@ -1,0 +1,41 @@
+stages:
+  - build
+  - deploy
+variables:
+  REGISTRY_APP_IMAGE: "achasoft_registry_vault"
+  DEV_VM_SHELL_SCRIPT: "/home/registry_vault/publish.sh"
+  SOURCE_CODE_PATH: '.'
+build_app_image:
+  image: 'docker:stable-dind'
+  stage: build
+  services:
+    - name: 'docker:dind'
+      alias: thedockerhost
+  script:
+    - 'export VERSION_TAG="v1.0.$(date ''+%Y_%m_%d_%H%M'')"'
+    - 'docker login ${REGISTRY_HOST} -u ${REGISTRY_USER} -p ${REGISTRY_PASSWORD}'
+    - 'docker build -t ${REGISTRY_HOST}/${REGISTRY_APP_IMAGE}:latest -t ${REGISTRY_HOST}/${REGISTRY_APP_IMAGE}:${VERSION_TAG} ${SOURCE_CODE_PATH}'
+    - 'docker push ${REGISTRY_HOST}/${REGISTRY_APP_IMAGE}:latest'
+    - 'docker push ${REGISTRY_HOST}/${REGISTRY_APP_IMAGE}:${VERSION_TAG}'
+    - 'docker logout ${REGISTRY_HOST}'
+    - 'echo "VERSION_TAG=${VERSION_TAG}" >> build_version.env'
+  artifacts:
+    expire_in: 1 day
+    reports:
+      dotenv: build_version.env
+publish_to_development:
+  variables:
+    GIT_STRATEGY: none
+  image: alpine:latest
+  stage: deploy
+  before_script:
+    - 'command -v ssh-agent >/dev/null || (apk add --update openssh sshpass)'
+    - 'eval $(ssh-agent -s)'
+    - 'mkdir -p ~/.ssh'
+    - 'chmod 700 ~/.ssh'
+    - 'ssh-keyscan ${DEV_VM_IP_ADDRESS} >> ~/.ssh/known_hosts'
+    - 'chmod 644 ~/.ssh/known_hosts'
+  script:
+    - 'sshpass -p ${DEV_VM_SSH_PASSWORD} ssh ${DEV_VM_SSH_USER}@${DEV_VM_IP_ADDRESS} "bash ${DEV_VM_SHELL_SCRIPT}"'
+  dependencies:
+    - build_app_image
