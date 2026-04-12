@@ -1,6 +1,7 @@
 {
   "name": "registry-vault",
-  "private": true,
+  "version": "1.0.0",
+  "private": false,
   "scripts": {
     "dev": "pnpm --filter @registry-vault/api dev",
     "dev:web": "pnpm --filter @registry-vault/web dev",
