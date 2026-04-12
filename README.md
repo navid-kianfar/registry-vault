@@ -153,6 +153,29 @@ API output: `apps/api/dist/`
 
 ### Docker
 
+#### Using Docker Compose (Recommended)
+
+The easiest way to run Registry Vault is with Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+This will use the `docker-compose.yml` file, which sets up persistence for your database in the `./data` directory and uses the `.env` file for configuration.
+
+#### Using Docker Image directly
+
+You can run Registry Vault using the pre-built Docker image:
+
+```bash
+docker pull kianfar/registry-vault
+docker run --env-file .env -p 80:80 kianfar/registry-vault
+```
+
+#### Build locally
+
+If you prefer to build the image yourself:
+
 ```bash
 docker build -t registry-vault .
 docker run --env-file .env -p 80:80 registry-vault

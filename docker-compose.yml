@@ -1,0 +1,10 @@
+services:
+  registry-vault:
+    image: kianfar/registry-vault
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
