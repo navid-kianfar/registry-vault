@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { IRegistryConnection } from '@registry-vault/shared';
+import { BrandMark } from '@/components/shared/brand-mark';
 
 interface NavItem {
   label: string;
@@ -284,7 +285,7 @@ function SidebarContent({ isCollapsed }: { isCollapsed: boolean }) {
       )}>
         <Link to="/" className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Package className="h-4 w-4" />
+            <BrandMark className="h-5 w-5" />
           </div>
           {!isCollapsed && (
             <span className="text-base font-bold text-sidebar-foreground truncate max-w-[160px]">

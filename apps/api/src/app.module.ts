@@ -5,6 +5,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { join } from 'path';
 
+import { CryptoModule } from './common/crypto/crypto.module';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
 import { DockerModule } from './docker/docker.module';
@@ -34,6 +35,7 @@ import { ApiResponseInterceptor } from './common/interceptors/api-response.inter
       exclude: ['/api*'],
     }),
     ScheduleModule.forRoot(),
+    CryptoModule,
     DatabaseModule,
     AuthModule,
     DockerModule,

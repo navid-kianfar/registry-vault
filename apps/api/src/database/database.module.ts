@@ -4,11 +4,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as path from 'path';
 
 import { UserEntity } from '../rbac/entities/user.entity';
-import { TeamEntity } from '../rbac/entities/team.entity';
-import { GeneralSettingsEntity } from '../settings/entities/general-settings.entity';
-import { RegistryConnectionEntity } from '../settings/entities/registry-connection.entity';
-import { RetentionPolicyEntity } from '../settings/entities/retention-policy.entity';
-import { WebhookEntity } from '../settings/entities/webhook.entity';
 
 import { SeedService } from './seed.service';
 
@@ -49,14 +44,7 @@ import { SeedService } from './seed.service';
         };
       },
     }),
-    TypeOrmModule.forFeature([
-      UserEntity,
-      TeamEntity,
-      GeneralSettingsEntity,
-      RegistryConnectionEntity,
-      RetentionPolicyEntity,
-      WebhookEntity,
-    ]),
+    TypeOrmModule.forFeature([UserEntity]),
   ],
   providers: [SeedService],
   exports: [SeedService],

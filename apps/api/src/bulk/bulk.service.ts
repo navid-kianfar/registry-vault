@@ -16,6 +16,7 @@ import { NuGetPackageEntity } from '../nuget/entities/nuget-package.entity';
 import { NuGetPackageVersionEntity } from '../nuget/entities/nuget-package-version.entity';
 import { RegistryConnectionEntity } from '../settings/entities/registry-connection.entity';
 import { RegistryCredentialEntity } from '../settings/entities/registry-credential.entity';
+import { CredentialCryptoService } from '../common/crypto/credential-crypto.service';
 import { DockerRegistryConnector } from '../registry-sync/connectors/docker-registry.connector';
 import { NpmRegistryConnector } from '../registry-sync/connectors/npm-registry.connector';
 import { NuGetRegistryConnector } from '../registry-sync/connectors/nuget-registry.connector';
@@ -44,6 +45,7 @@ export class BulkService {
     private readonly dockerConnector: DockerRegistryConnector,
     private readonly npmConnector: NpmRegistryConnector,
     private readonly nugetConnector: NuGetRegistryConnector,
+    private readonly credentialCrypto: CredentialCryptoService,
   ) {}
 
   // Resolve auth parameters from a credential entity
@@ -65,7 +67,9 @@ export class BulkService {
     if (!registryConnectionId) return { connection: null, cred: null };
     const connection = await this.connectionRepository.findOne({ where: { id: registryConnectionId } });
     const cred = connection
-      ? await this.credentialRepository.findOne({ where: { registryConnectionId: connection.id } })
+      ? await this.credentialCrypto.prepareForUse(
+          await this.credentialRepository.findOne({ where: { registryConnectionId: connection.id } }),
+        )
       : null;
     return { connection, cred };
   }

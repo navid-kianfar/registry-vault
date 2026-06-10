@@ -18,12 +18,14 @@ import { NpmPackageVersionEntity } from '../npm/entities/npm-package-version.ent
 import { NuGetPackageEntity } from '../nuget/entities/nuget-package.entity';
 import { NuGetPackageVersionEntity } from '../nuget/entities/nuget-package-version.entity';
 import { AuditLogEntity } from '../audit-logs/entities/audit-log.entity';
+import { CredentialCryptoService } from '../common/crypto/credential-crypto.service';
 
 @Injectable()
 export class RegistrySyncService {
   private readonly logger = new Logger(RegistrySyncService.name);
 
   constructor(
+    private readonly credentialCrypto: CredentialCryptoService,
     private readonly dockerConnector: DockerRegistryConnector,
     private readonly npmConnector: NpmRegistryConnector,
     private readonly nugetConnector: NuGetRegistryConnector,
@@ -124,9 +126,11 @@ export class RegistrySyncService {
       `Syncing connection: ${connection.name} (type=${connection.registryType})`,
     );
 
-    const credential = await this.credentialRepo.findOne({
-      where: { registryConnectionId: connection.id },
-    });
+    const credential = await this.credentialCrypto.prepareForUse(
+      await this.credentialRepo.findOne({
+        where: { registryConnectionId: connection.id },
+      }),
+    );
 
     switch (connection.registryType) {
       case RegistryType.Docker:
@@ -749,9 +753,11 @@ export class RegistrySyncService {
       return false;
     }
 
-    const credential = await this.credentialRepo.findOne({
-      where: { registryConnectionId: connectionId },
-    });
+    const credential = await this.credentialCrypto.prepareForUse(
+      await this.credentialRepo.findOne({
+        where: { registryConnectionId: connectionId },
+      }),
+    );
 
     let result = false;
 

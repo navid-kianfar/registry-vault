@@ -125,8 +125,14 @@ cd repo-station
 # Install dependencies
 pnpm install
 
-# Start API (port 3001) and frontend (port 3000) concurrently
+# Configure environment — set JWT_SECRET and ADMIN_PASSWORD (both required)
+cp .env.example apps/api/.env
+
+# Start the API (port 3001)
 pnpm dev
+
+# In a second terminal, start the frontend (port 3000)
+pnpm dev:web
 ```
 
 - Frontend: `http://localhost:3000`
@@ -134,13 +140,21 @@ pnpm dev
 
 The frontend proxies `/api/*` requests to the API during development.
 
-### Default credentials
+### Initial admin account
 
-On first run the API seeds an admin user:
+There are no hardcoded default credentials. On first start (empty database) the API creates a single admin account from environment variables:
 
-| Username | Password |
-|----------|----------|
-| `admin` | `admin123` |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ADMIN_USERNAME` | `admin` | Username for the initial admin account |
+| `ADMIN_PASSWORD` | — **required on first start** | The API refuses to start with an empty database if unset |
+| `ADMIN_EMAIL` | `admin@registryvault.local` | Email for the initial admin account |
+
+Once any user exists these variables are ignored — manage users from the UI.
+
+```bash
+docker run -e JWT_SECRET=... -e ADMIN_PASSWORD=... -p 80:80 kianfar/registry-vault
+```
 
 ### Build for Production
 
@@ -158,6 +172,7 @@ API output: `apps/api/dist/`
 The easiest way to run Registry Vault is with Docker Compose:
 
 ```bash
+cp .env.example .env   # then set JWT_SECRET and ADMIN_PASSWORD
 docker compose up -d
 ```
 
@@ -165,11 +180,26 @@ This will use the `docker-compose.yml` file, which sets up persistence for your 
 
 #### Using Docker Image directly
 
-You can run Registry Vault using the pre-built Docker image:
+You can run Registry Vault using the pre-built Docker image with all configuration passed inline — no `.env` file needed:
 
 ```bash
-docker pull kianfar/registry-vault
-docker run --env-file .env -p 80:80 kianfar/registry-vault
+docker run -d \
+  --name registry-vault \
+  -p 8080:80 \
+  -v "$(pwd)/data:/app/data" \
+  -e JWT_SECRET=change-me-to-a-long-random-string \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD=choose-a-strong-password \
+  kianfar/registry-vault
+```
+
+Then open `http://localhost:8080` and sign in with the admin credentials you set. Generate a strong `JWT_SECRET` with `openssl rand -base64 48`. The volume mount keeps the SQLite database and the auto-generated credential encryption key in `./data`, so they survive container recreation. `ADMIN_USERNAME` / `ADMIN_PASSWORD` only matter on the very first start (empty database) — see [Configuration](#configuration) for all variables.
+
+If you prefer a file, the same variables can come from `.env`:
+
+```bash
+docker run -d --name registry-vault -p 8080:80 -v "$(pwd)/data:/app/data" \
+  --env-file .env kianfar/registry-vault
 ```
 
 #### Build locally
@@ -187,13 +217,27 @@ The container exposes port **80** and listens on `0.0.0.0`. Pass configuration v
 
 ## Configuration
 
-The API reads environment variables at startup:
+The API reads environment variables at startup. [`.env.example`](.env.example) documents every variable — copy it to `.env` (Docker) or `apps/api/.env` (local development) to get started.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3001` | API listen port |
-| `JWT_SECRET` | `change-me` | Secret for signing JWT tokens |
-| `DB_PATH` | `data/registry-vault.db` | SQLite database file path |
+| `PORT` | `3001` (Docker image: `80`) | API listen port |
+| `CORS_ORIGIN` | `http://localhost:3000` | Allowed CORS origin for browser requests |
+| `JWT_SECRET` | — **required** | Secret for signing JWT tokens; the API refuses to start without it |
+| `ADMIN_USERNAME` | `admin` | Username for the initial admin account (first start only) |
+| `ADMIN_PASSWORD` | — **required on first start** | Password for the initial admin account, created when the database is empty |
+| `ADMIN_EMAIL` | `admin@registryvault.local` | Email for the initial admin account (first start only) |
+| `ENCRYPTION_KEY` | auto-generated | Key for encrypting stored registry credentials; auto-generated at `<data dir>/.encryption-key` when unset (set explicitly for PostgreSQL) |
+| `DB_TYPE` | `sqlite` | Database backend: `sqlite` or `postgres` |
+| `DB_PATH` | `./data/registry-vault.db` | SQLite database file path (when `DB_TYPE=sqlite`) |
+| `DB_HOST` | `localhost` | PostgreSQL host (when `DB_TYPE=postgres`) |
+| `DB_PORT` | `5432` | PostgreSQL port |
+| `DB_USERNAME` | `postgres` | PostgreSQL username |
+| `DB_PASSWORD` | `postgres` | PostgreSQL password |
+| `DB_NAME` | `registryvault` | PostgreSQL database name |
+
+> PostgreSQL support requires the `pg` driver, which is not installed by default:
+> `pnpm --filter @registry-vault/api add pg`
 
 ---
 

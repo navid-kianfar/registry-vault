@@ -1,11 +1,11 @@
 # ---- Base ----
-FROM --platform=$BUILDPLATFORM node:20-alpine AS base
-RUN npm install -g pnpm@9
+FROM --platform=$BUILDPLATFORM node:22-alpine AS base
+RUN npm install -g pnpm@11.5.1
 WORKDIR /app
 
 # ---- Install dependencies ----
-FROM --platform=$BUILDPLATFORM node:20-alpine AS deps
-RUN npm install -g pnpm@9
+FROM --platform=$BUILDPLATFORM node:22-alpine AS deps
+RUN npm install -g pnpm@11.5.1
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
@@ -14,8 +14,8 @@ COPY packages/shared/package.json ./packages/shared/
 RUN pnpm install --frozen-lockfile
 
 # ---- Build ----
-FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
-RUN npm install -g pnpm@9
+FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
+RUN npm install -g pnpm@11.5.1
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
@@ -24,13 +24,13 @@ COPY . .
 RUN pnpm build
 
 # ---- Production ----
-FROM --platform=$TARGETPLATFORM node:20-alpine AS production
+FROM --platform=$TARGETPLATFORM node:22-alpine AS production
 
 WORKDIR /app
 
 # Native modules (bcrypt, better-sqlite3) need build tools at install time
 RUN apk add --no-cache python3 make g++
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@11.5.1
 
 # Copy manifests for production-only install
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

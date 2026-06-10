@@ -25,6 +25,7 @@ import { DockerTagEntity } from '../docker/entities/docker-tag.entity';
 import { NpmPackageVersionEntity } from '../npm/entities/npm-package-version.entity';
 import { NuGetPackageVersionEntity } from '../nuget/entities/nuget-package-version.entity';
 import { RegistryType } from '@registry-vault/shared';
+import { CredentialCryptoService } from '../common/crypto/credential-crypto.service';
 
 @Injectable()
 export class SettingsService {
@@ -45,6 +46,7 @@ export class SettingsService {
     private readonly npmVersionRepository: Repository<NpmPackageVersionEntity>,
     @InjectRepository(NuGetPackageVersionEntity)
     private readonly nugetVersionRepository: Repository<NuGetPackageVersionEntity>,
+    private readonly credentialCrypto: CredentialCryptoService,
   ) {}
 
   async getGeneralSettings(): Promise<IGeneralSettings> {
@@ -346,6 +348,9 @@ export class SettingsService {
     const credentials: IRegistryCredential[] = [];
 
     for (const entity of entities) {
+      // Transparently upgrade legacy plaintext rows to encrypted storage
+      await this.credentialCrypto.migrateAtRest(entity);
+
       const connection = await this.registryConnectionRepository.findOne({
         where: { id: entity.registryConnectionId },
       });
@@ -378,7 +383,9 @@ export class SettingsService {
       registryName: connection ? connection.name : '',
       authType: request.authType,
       username: request.username,
-      encryptedPassword: request.password,
+      encryptedPassword: request.password
+        ? this.credentialCrypto.encrypt(request.password)
+        : request.password,
       headerName: request.headerName,
     });
 
@@ -411,7 +418,10 @@ export class SettingsService {
 
     if (request.authType !== undefined) entity.authType = request.authType;
     if (request.username !== undefined) entity.username = request.username;
-    if (request.password !== undefined) entity.encryptedPassword = request.password;
+    if (request.password !== undefined)
+      entity.encryptedPassword = request.password
+        ? this.credentialCrypto.encrypt(request.password)
+        : request.password;
     if (request.headerName !== undefined) entity.headerName = request.headerName;
 
     const saved = await this.registryCredentialRepository.save(entity);

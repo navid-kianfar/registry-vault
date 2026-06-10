@@ -1,10 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
   <rect width="180" height="180" rx="30" fill="#1e40af"/>
-  <rect x="36" y="56" width="108" height="84" rx="6" fill="none" stroke="white" stroke-width="10"/>
-  <rect x="29" y="44" width="122" height="20" rx="4" fill="white"/>
-  <rect x="83" y="44" width="14" height="20" fill="#1e40af"/>
-  <path d="M72 44 V34 Q72 20 90 20 Q108 20 108 34 V44" fill="none" stroke="white" stroke-width="10" stroke-linecap="round"/>
-  <rect x="69" y="87" width="42" height="34" rx="4" fill="white"/>
-  <circle cx="90" cy="99" r="6" fill="#1e40af"/>
-  <rect x="87" y="99" width="6" height="10" rx="2" fill="#1e40af"/>
+  <path d="M39.4 45 H120.9" stroke="#93c5fd" stroke-width="14" stroke-linecap="round"/>
+  <path d="M106.9 25.3 L129.4 45 L106.9 64.7" fill="none" stroke="#93c5fd" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M140.6 135 H59.1" stroke="white" stroke-width="14" stroke-linecap="round"/>
+  <path d="M73.1 115.3 L50.6 135 L73.1 154.7" fill="none" stroke="white" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M90 68.9 L109.7 78.8 V101.3 L90 111.1 L70.3 101.3 V78.8 Z" fill="white"/>
+  <path d="M70.3 78.8 L90 88.6 L109.7 78.8 M90 88.6 V111.1" fill="none" stroke="#1e40af" stroke-width="5"/>
 </svg>

@@ -17,14 +17,5 @@
   "engines": {
     "node": ">=20.0.0",
     "pnpm": ">=9.0.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "bcrypt",
-      "better-sqlite3",
-      "@nestjs/core",
-      "@swc/core",
-      "esbuild"
-    ]
   }
 }
