@@ -28,6 +28,11 @@ import { ApiResponseInterceptor } from './common/interceptors/api-response.inter
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      // Local development reads apps/api/.env. In production (the Docker image
+      // sets NODE_ENV=production) configuration comes exclusively from the
+      // process environment supplied at `docker run` — never from a file on
+      // disk, so no env file can be baked into an image layer.
+      ignoreEnvFile: process.env.NODE_ENV === 'production',
       envFilePath: join(__dirname, '..', '.env'),
     }),
     ServeStaticModule.forRoot({

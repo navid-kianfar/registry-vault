@@ -3,6 +3,9 @@ apps/*/node_modules
 packages/*/node_modules
 apps/*/dist
 apps/api/data
-**/.env
+# Configuration is supplied at runtime (docker run -e / --env-file).
+# Keep every env file — including .env.example — out of the build context
+# so none can be baked into an image layer.
+**/.env*
 **/pnpm-debug.log
 data/

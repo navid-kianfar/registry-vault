@@ -52,6 +52,11 @@ RUN mkdir -p ./data
 
 EXPOSE 80
 
+# No .env file is copied into the image — .dockerignore keeps every env file
+# out of the build context, and NODE_ENV=production makes the API ignore
+# on-disk env files entirely. Supply configuration at run time:
+#   docker run -e JWT_SECRET=... -e ADMIN_PASSWORD=...
+#   docker run --env-file .env ...
 ENV PORT=80
 ENV NODE_ENV=production
 

@@ -153,7 +153,8 @@ There are no hardcoded default credentials. On first start (empty database) the 
 Once any user exists these variables are ignored — manage users from the UI.
 
 ```bash
-docker run -e JWT_SECRET=... -e ADMIN_PASSWORD=... -p 80:80 kianfar/registry-vault
+docker run -e JWT_SECRET=... -e ADMIN_PASSWORD=... \
+  -v registry-vault-data:/app/data -p 80:80 kianfar/registry-vault
 ```
 
 ### Build for Production
@@ -176,7 +177,7 @@ cp .env.example .env   # then set JWT_SECRET and ADMIN_PASSWORD
 docker compose up -d
 ```
 
-This will use the `docker-compose.yml` file, which sets up persistence for your database in the `./data` directory and uses the `.env` file for configuration.
+This uses the `docker-compose.yml` file, which stores the database in a Docker **named volume** (`registry-vault-data`) and reads configuration from `.env`. The volume is managed by Docker and survives `docker compose down` and container recreation — it is only removed if you explicitly ask for it with `docker compose down -v`.
 
 #### Using Docker Image directly
 
@@ -186,19 +187,19 @@ You can run Registry Vault using the pre-built Docker image with all configurati
 docker run -d \
   --name registry-vault \
   -p 8080:80 \
-  -v "$(pwd)/data:/app/data" \
+  -v registry-vault-data:/app/data \
   -e JWT_SECRET=change-me-to-a-long-random-string \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=choose-a-strong-password \
   kianfar/registry-vault
 ```
 
-Then open `http://localhost:8080` and sign in with the admin credentials you set. Generate a strong `JWT_SECRET` with `openssl rand -base64 48`. The volume mount keeps the SQLite database and the auto-generated credential encryption key in `./data`, so they survive container recreation. `ADMIN_USERNAME` / `ADMIN_PASSWORD` only matter on the very first start (empty database) — see [Configuration](#configuration) for all variables.
+Then open `http://localhost:8080` and sign in with the admin credentials you set. Generate a strong `JWT_SECRET` with `openssl rand -base64 48`. The named volume `registry-vault-data` keeps the SQLite database and the auto-generated credential encryption key, so they survive container recreation (Docker creates the volume on first run). `ADMIN_USERNAME` / `ADMIN_PASSWORD` only matter on the very first start (empty database) — see [Configuration](#configuration) for all variables.
 
 If you prefer a file, the same variables can come from `.env`:
 
 ```bash
-docker run -d --name registry-vault -p 8080:80 -v "$(pwd)/data:/app/data" \
+docker run -d --name registry-vault -p 8080:80 -v registry-vault-data:/app/data \
   --env-file .env kianfar/registry-vault
 ```
 
@@ -208,16 +209,40 @@ If you prefer to build the image yourself:
 
 ```bash
 docker build -t registry-vault .
-docker run --env-file .env -p 80:80 registry-vault
+docker run --env-file .env -p 80:80 -v registry-vault-data:/app/data registry-vault
 ```
 
-The container exposes port **80** and listens on `0.0.0.0`. Pass configuration via `--env-file` — do not bake secrets into the image.
+The container exposes port **80** and listens on `0.0.0.0`.
+
+Configuration is supplied at run time only. No env file is copied into the image — `.dockerignore` keeps every env file (including `.env.example`) out of the build context, and because the image sets `NODE_ENV=production` the API ignores on-disk env files and reads configuration solely from the process environment. `--env-file` works because Docker reads the file on the *host* and injects the values as environment variables. Never bake secrets into an image layer.
+
+#### Managing the data volume
+
+The database, and the credential encryption key when it is auto-generated, live in the `registry-vault-data` volume. With Docker Compose the volume is prefixed with the project name — `registry-vault_registry-vault-data` when you run compose from a directory named `registry-vault`; run `docker volume ls` to confirm, and substitute that name below.
+
+```bash
+docker volume inspect registry-vault-data          # where Docker stores it
+docker run --rm -v registry-vault-data:/data -v "$(pwd):/backup" alpine \
+  tar czf /backup/registry-vault-backup.tar.gz -C /data .   # back up
+docker volume rm registry-vault-data               # delete — wipes all data
+```
+
+> Removing the volume resets the instance to an empty database, so the next start re-runs the initial admin seed from `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
+
+If you are migrating from an older setup that bind-mounted `./data`, copy the existing files into the named volume before starting:
+
+```bash
+docker run --rm -v "$(pwd)/data:/from" -v registry-vault-data:/to alpine \
+  sh -c "cp -a /from/. /to/"
+```
 
 ---
 
 ## Configuration
 
 The API reads environment variables at startup. [`.env.example`](.env.example) documents every variable — copy it to `.env` (Docker) or `apps/api/.env` (local development) to get started.
+
+In Docker the `.env` file stays on the host: Docker reads it and passes the values in as environment variables. The API only loads a `.env` file from disk outside production (`NODE_ENV !== 'production'`), which is the local development path.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
