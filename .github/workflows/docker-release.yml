@@ -90,8 +90,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Default flavor (latest=auto) also tags :latest on semver tag pushes —
-      # the old `enable={{is_default_branch}}` condition never fired on tag events.
+      # :latest must be requested explicitly. `enable={{is_default_branch}}`
+      # never fires on a tag event, and the default `latest=auto` flavor did
+      # not tag it either — v1.0.3 published 1.0.3 and 1.0 while :latest stayed
+      # on v1.0.2, so anyone tracking :latest silently stopped getting updates.
+      # The enable guard keeps pre-release tags (v1.2.0-rc1) off :latest.
       - name: Extract metadata (tags) for Docker
         id: meta
         uses: docker/metadata-action@v5
@@ -100,6 +103,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - name: Create manifest list and push
         working-directory: ${{ runner.temp }}/digests
