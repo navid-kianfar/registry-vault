@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { normalizeRegistryUrl, describeFetchFailure } from './registry-url';
+
 export interface NpmSearchResult {
   package?: {
     name?: string;
@@ -236,7 +238,7 @@ export class NpmRegistryConnector {
   // ---- Private helpers ----
 
   private normalizeUrl(url: string): string {
-    return url.replace(/\/+$/, '');
+    return normalizeRegistryUrl(url);
   }
 
   private buildHeaders(
@@ -271,6 +273,9 @@ export class NpmRegistryConnector {
         signal: controller.signal,
       });
       return response;
+    } catch (error: unknown) {
+      // Replace Node's opaque "fetch failed" with the underlying cause.
+      throw new Error(describeFetchFailure(url, error, this.timeoutMs));
     } finally {
       clearTimeout(timeout);
     }

@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { normalizeRegistryUrl, describeFetchFailure } from './registry-url';
+
 interface NuGetServiceResource {
   '@id': string;
   '@type': string;
@@ -274,7 +276,7 @@ export class NuGetRegistryConnector {
   // ---- Private helpers ----
 
   private normalizeUrl(url: string): string {
-    return url.replace(/\/+$/, '');
+    return normalizeRegistryUrl(url);
   }
 
   private buildHeaders(apiKey?: string, password?: string, apiKeyHeader?: string): Record<string, string> {
@@ -318,6 +320,9 @@ export class NuGetRegistryConnector {
         signal: controller.signal,
       });
       return response;
+    } catch (error: unknown) {
+      // Replace Node's opaque "fetch failed" with the underlying cause.
+      throw new Error(describeFetchFailure(url, error, this.timeoutMs));
     } finally {
       clearTimeout(timeout);
     }

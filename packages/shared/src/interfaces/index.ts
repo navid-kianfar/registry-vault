@@ -6,6 +6,6 @@ export type { INpmPackage, INpmPackageVersion } from './npm.interfaces';
 export type { IUser, ITeam, ITeamMember, IRoleDefinition, IPermissionGrant, ICreateUserRequest, IUpdateUserRequest, IChangePasswordRequest } from './rbac.interfaces';
 export type { IAuditLogEntry } from './audit-log.interfaces';
 export type { IAnalyticsDataPoint, IRegistryAnalytics, ITopPackage, IAnalyticsSummary } from './analytics.interfaces';
-export type { IRegistryConnection, ICreateRegistryConnectionRequest, IUpdateRegistryConnectionRequest, IStorageConfig, IRetentionPolicy, ICreateRetentionPolicyRequest, IUpdateRetentionPolicyRequest, IWebhook, ICreateWebhookRequest, IUpdateWebhookRequest, IGeneralSettings } from './settings.interfaces';
+export type { IRegistryConnection, ICreateRegistryConnectionRequest, IUpdateRegistryConnectionRequest, IStorageConfig, IRetentionPolicy, ICreateRetentionPolicyRequest, IUpdateRetentionPolicyRequest, IWebhook, ICreateWebhookRequest, IUpdateWebhookRequest, IGeneralSettings, IRegistrySyncResult } from './settings.interfaces';
 export type { IAuthUser, ILoginRequest, ILoginResponse, IRegistryCredential, ICreateCredentialRequest, IUpdateCredentialRequest } from './auth.interfaces';
 export type { IBulkDeleteRequest, IBulkDeleteItem, IBulkDeleteResult, IBulkDeleteFailure, ICleanupVersionsRequest } from './bulk-operations.interfaces';

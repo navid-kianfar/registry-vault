@@ -19,6 +19,7 @@ import type {
   IAnalyticsSummary,
   IGeneralSettings,
   IRegistryConnection,
+  IRegistrySyncResult,
   ICreateRegistryConnectionRequest,
   IUpdateRegistryConnectionRequest,
   IRetentionPolicy,
@@ -280,11 +281,11 @@ class HttpApiClient implements IApiClient {
     return apiFetch(`/settings/registries/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
-  async syncRegistryConnection(id: string): Promise<ApiResponse<{ synced: boolean }>> {
+  async syncRegistryConnection(id: string): Promise<ApiResponse<IRegistrySyncResult>> {
     return apiFetch(`/settings/registries/${encodeURIComponent(id)}/sync`, { method: 'POST' });
   }
 
-  async syncAllRegistries(): Promise<ApiResponse<{ synced: boolean }>> {
+  async syncAllRegistries(): Promise<ApiResponse<IRegistrySyncResult>> {
     return apiFetch('/settings/sync', { method: 'POST' });
   }
 

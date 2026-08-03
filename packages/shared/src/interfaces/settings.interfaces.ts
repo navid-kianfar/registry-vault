@@ -98,3 +98,17 @@ export interface IGeneralSettings {
   sessionTimeoutMinutes: number;
   maintenanceMode: boolean;
 }
+
+/**
+ * Outcome of a registry sync. `synced` is false when any connection failed, so
+ * the UI can report the failure instead of assuming success.
+ */
+export interface IRegistrySyncResult {
+  synced: boolean;
+  /** Connections attempted. */
+  attempted: number;
+  /** Connections that failed. */
+  failed: number;
+  /** One human-readable message per failed connection. */
+  errors: string[];
+}

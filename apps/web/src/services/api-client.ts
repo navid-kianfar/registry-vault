@@ -18,6 +18,7 @@ import type {
   IAnalyticsSummary,
   IGeneralSettings,
   IRegistryConnection,
+  IRegistrySyncResult,
   ICreateRegistryConnectionRequest,
   IUpdateRegistryConnectionRequest,
   IRetentionPolicy,
@@ -81,8 +82,8 @@ export interface IApiClient {
   createRegistryConnection(request: ICreateRegistryConnectionRequest): Promise<ApiResponse<IRegistryConnection>>;
   updateRegistryConnection(id: string, request: IUpdateRegistryConnectionRequest): Promise<ApiResponse<IRegistryConnection>>;
   deleteRegistryConnection(id: string): Promise<ApiResponse<void>>;
-  syncRegistryConnection(id: string): Promise<ApiResponse<{ synced: boolean }>>;
-  syncAllRegistries(): Promise<ApiResponse<{ synced: boolean }>>;
+  syncRegistryConnection(id: string): Promise<ApiResponse<IRegistrySyncResult>>;
+  syncAllRegistries(): Promise<ApiResponse<IRegistrySyncResult>>;
   getRetentionPolicies(): Promise<ApiResponse<IRetentionPolicy[]>>;
   createRetentionPolicy(request: ICreateRetentionPolicyRequest): Promise<ApiResponse<IRetentionPolicy>>;
   updateRetentionPolicy(id: string, request: IUpdateRetentionPolicyRequest): Promise<ApiResponse<IRetentionPolicy>>;

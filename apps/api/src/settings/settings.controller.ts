@@ -10,6 +10,7 @@ import type {
   IWebhook,
   ICreateWebhookRequest,
   IUpdateWebhookRequest,
+  IRegistrySyncResult,
 } from '@registry-vault/shared';
 import { SettingsService } from './settings.service';
 import { RegistrySyncService } from '../registry-sync/registry-sync.service';
@@ -60,16 +61,14 @@ export class SettingsController {
 
   @Post('registries/:id/sync')
   @HttpCode(200)
-  async syncRegistryConnection(@Param('id') id: string): Promise<{ synced: boolean }> {
-    await this.registrySyncService.syncConnectionById(id);
-    return { synced: true };
+  async syncRegistryConnection(@Param('id') id: string): Promise<IRegistrySyncResult> {
+    return this.registrySyncService.syncConnectionById(id);
   }
 
   @Post('sync')
   @HttpCode(200)
-  async syncAllRegistries(): Promise<{ synced: boolean }> {
-    await this.registrySyncService.syncAll();
-    return { synced: true };
+  async syncAllRegistries(): Promise<IRegistrySyncResult> {
+    return this.registrySyncService.syncAll();
   }
 
   @Get('retention')

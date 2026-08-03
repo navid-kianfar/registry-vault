@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import type { IRegistrySyncResult } from '@registry-vault/shared';
 import { RegistryType, CredentialAuthType, AuditAction } from '@registry-vault/shared/enums';
 
 import { DockerRegistryConnector, DockerImageConfig, DockerManifest } from './connectors/docker-registry.connector';
@@ -64,31 +65,62 @@ export class RegistrySyncService {
    * Sync all registry connections.
    * Called by schedule or manually.
    */
-  async syncAll(): Promise<void> {
+  async syncAll(): Promise<IRegistrySyncResult> {
     this.logger.log('Starting sync for all registry connections');
     const connections = await this.connectionRepo.find();
+    const errors: string[] = [];
 
     for (const conn of connections) {
       try {
         await this.syncConnection(conn);
       } catch (error: unknown) {
-        this.logger.error(`Failed to sync ${conn.name}: ${(error as Error).message}`);
+        const message = (error as Error).message;
+        this.logger.error(`Failed to sync ${conn.name}: ${message}`);
+        // Keep syncing the remaining connections, but report the failure
+        // instead of finishing silently as if everything worked.
+        errors.push(`${conn.name}: ${message}`);
       }
     }
 
-    this.logger.log('Completed sync for all registry connections');
+    this.logger.log(
+      `Completed sync for all registry connections (${connections.length - errors.length}/${connections.length} succeeded)`,
+    );
+
+    return {
+      synced: errors.length === 0,
+      attempted: connections.length,
+      failed: errors.length,
+      errors,
+    };
   }
 
   /**
    * Sync a single registry connection by ID.
+   *
+   * A sync that fails comes back as `synced: false` with the reason, rather
+   * than as an unconditional success or an opaque 500. Only a missing
+   * connection throws.
    */
-  async syncConnectionById(id: string): Promise<void> {
+  async syncConnectionById(id: string): Promise<IRegistrySyncResult> {
     const connection = await this.connectionRepo.findOne({ where: { id } });
     if (!connection) {
-      this.logger.warn(`Connection ${id} not found for sync`);
-      return;
+      throw new NotFoundException(`Registry connection ${id} not found`);
     }
-    await this.syncConnection(connection);
+
+    try {
+      await this.syncConnection(connection);
+    } catch (error: unknown) {
+      const message = (error as Error).message;
+      this.logger.error(`Failed to sync ${connection.name}: ${message}`);
+      return {
+        synced: false,
+        attempted: 1,
+        failed: 1,
+        errors: [`${connection.name}: ${message}`],
+      };
+    }
+
+    return { synced: true, attempted: 1, failed: 0, errors: [] };
   }
 
   /**

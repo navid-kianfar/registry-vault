@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { normalizeRegistryUrl, resolveRegistryUrl, describeFetchFailure } from './registry-url';
+
 interface WwwAuthenticateParams {
   realm: string;
   service?: string;
@@ -159,8 +161,13 @@ export class DockerRegistryConnector {
         return null;
       }
 
-      // Build token request URL
-      const tokenUrl = new URL(params.realm);
+      // Build token request URL. The realm is often relative (e.g.
+      // `/service/token`) when the registry sits behind a reverse proxy, so
+      // resolve it against the registry base URL rather than parsing it alone.
+      const tokenUrl = new URL(resolveRegistryUrl(params.realm, baseUrl));
+      this.logger.debug(
+        `Token auth for ${baseUrl}: realm="${params.realm}" -> ${tokenUrl.origin}${tokenUrl.pathname}`,
+      );
       if (params.service) {
         tokenUrl.searchParams.set('service', params.service);
       }
@@ -196,6 +203,13 @@ export class DockerRegistryConnector {
     }
   }
 
+  /**
+   * List every repository in the registry catalog.
+   *
+   * Throws when the registry cannot be reached or refuses the request. An empty
+   * array means the catalog really is empty — callers rely on that distinction
+   * to report a sync as failed rather than as "found 0 repositories".
+   */
   async listRepositories(
     url: string,
     username?: string,
@@ -221,10 +235,11 @@ export class DockerRegistryConnector {
         });
 
         if (!response.ok) {
-          this.logger.warn(
-            `listRepositories failed with status ${response.status}`,
+          throw new Error(
+            response.status === 401 || response.status === 403
+              ? `Registry rejected the catalog request (HTTP ${response.status}) — check the credentials configured for this connection`
+              : `Registry catalog request failed with HTTP ${response.status}`,
           );
-          break;
         }
 
         const body = await response.json() as DockerCatalogResponse;
@@ -233,7 +248,7 @@ export class DockerRegistryConnector {
         }
 
         // Handle pagination via Link header
-        nextUrl = this.parseLinkHeader(response.headers.get('link'));
+        nextUrl = this.parseLinkHeader(response.headers.get('link'), baseUrl);
       }
 
       return allRepositories;
@@ -241,7 +256,8 @@ export class DockerRegistryConnector {
       this.logger.error(
         `listRepositories failed for ${url}: ${(error as Error).message}`,
       );
-      return [];
+      // Rethrow: swallowing this reported a broken sync as "found 0 repositories".
+      throw error;
     }
   }
 
@@ -459,7 +475,7 @@ export class DockerRegistryConnector {
   // ---- Private helpers ----
 
   private normalizeUrl(url: string): string {
-    return url.replace(/\/+$/, '');
+    return normalizeRegistryUrl(url);
   }
 
   private basicAuth(username: string, password: string): string {
@@ -500,12 +516,21 @@ export class DockerRegistryConnector {
     };
   }
 
-  private parseLinkHeader(linkHeader: string | null): string | null {
+  private parseLinkHeader(linkHeader: string | null, baseUrl: string): string | null {
     if (!linkHeader) return null;
 
     // Parse: <url>; rel="next"
     const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-    return match?.[1] ?? null;
+    if (!match) return null;
+
+    // Registries return this as a path (`/v2/_catalog?n=100&last=foo`), which
+    // fetch() cannot use on its own.
+    try {
+      return resolveRegistryUrl(match[1], baseUrl);
+    } catch {
+      this.logger.warn(`Ignoring unusable pagination Link header: ${linkHeader}`);
+      return null;
+    }
   }
 
   private async fetchWithTimeout(
@@ -521,6 +546,9 @@ export class DockerRegistryConnector {
         signal: controller.signal,
       });
       return response;
+    } catch (error: unknown) {
+      // Replace Node's opaque "fetch failed" with the underlying cause.
+      throw new Error(describeFetchFailure(url, error, this.timeoutMs));
     } finally {
       clearTimeout(timeout);
     }

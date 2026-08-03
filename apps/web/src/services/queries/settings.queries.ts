@@ -98,8 +98,14 @@ export function useSyncRegistryConnection() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient.syncRegistryConnection(id),
-    onSuccess: () => {
+    onSuccess: (response) => {
       invalidateAllDataCaches(queryClient);
+      // A sync can come back 200 while the registry itself rejected us — report
+      // what actually happened rather than an unconditional success.
+      if (response.data?.synced === false) {
+        toast.error(response.data.errors[0] ?? 'Sync failed');
+        return;
+      }
       toast.success('Registry synced successfully');
     },
     onError: (error: Error) => {
@@ -112,8 +118,17 @@ export function useSyncAllRegistries() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => apiClient.syncAllRegistries(),
-    onSuccess: () => {
+    onSuccess: (response) => {
       invalidateAllDataCaches(queryClient);
+      const result = response.data;
+      if (result && !result.synced) {
+        const succeeded = result.attempted - result.failed;
+        toast.error(
+          `${result.failed} of ${result.attempted} registries failed to sync: ${result.errors[0] ?? 'unknown error'}`,
+          { description: succeeded > 0 ? `${succeeded} synced successfully.` : undefined },
+        );
+        return;
+      }
       toast.success('All registries synced');
     },
     onError: (error: Error) => {
