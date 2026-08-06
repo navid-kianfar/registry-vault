@@ -1,9 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { RegistryType } from '@registry-vault/shared';
 import type {
   IDockerRepository,
   IDockerTag,
+  IDockerPlatform,
   IDockerImageDetail,
   PaginatedResponse,
   IVulnerabilitySummary,
@@ -11,6 +13,7 @@ import type {
 import { DockerRepositoryEntity } from './entities/docker-repository.entity';
 import { DockerTagEntity } from './entities/docker-tag.entity';
 import { DockerImageDetailEntity } from './entities/docker-image-detail.entity';
+import { BulkService } from '../bulk/bulk.service';
 import { paginate } from '../common/helpers/pagination.helper';
 
 @Injectable()
@@ -22,6 +25,7 @@ export class DockerService {
     private readonly tagRepo: Repository<DockerTagEntity>,
     @InjectRepository(DockerImageDetailEntity)
     private readonly imageDetailRepo: Repository<DockerImageDetailEntity>,
+    private readonly bulkService: BulkService,
   ) {}
 
   async getRepositories(params: {
@@ -104,6 +108,13 @@ export class DockerService {
     return this.mapImageDetailToInterface(entity);
   }
 
+  /**
+   * Delete one tag from the registry and the local mirror.
+   *
+   * Delegates to BulkService so there is a single delete implementation: this
+   * used to drop the local row only, which hid the tag in Registry Vault while
+   * it stayed pullable on the registry.
+   */
   async deleteTag(repositoryId: string, tagName: string): Promise<void> {
     const tag = await this.tagRepo.findOne({
       where: { repositoryId, name: tagName },
@@ -115,14 +126,15 @@ export class DockerService {
       );
     }
 
-    await this.tagRepo.remove(tag);
+    const result = await this.bulkService.bulkDelete({
+      registryType: RegistryType.Docker,
+      items: [{ packageIdentifier: repositoryId, versionIdentifier: tagName }],
+    });
 
-    // Update the repository's tag count
-    const repo = await this.repositoryRepo.findOne({ where: { id: repositoryId } });
-    if (repo) {
-      const tagCount = await this.tagRepo.count({ where: { repositoryId } });
-      repo.tagCount = tagCount;
-      await this.repositoryRepo.save(repo);
+    if (result.failureCount > 0) {
+      throw new InternalServerErrorException(
+        result.failures[0]?.reason ?? `Failed to delete tag "${tagName}"`,
+      );
     }
   }
 
@@ -164,10 +176,40 @@ export class DockerService {
       sizeBytes: Number(entity.sizeBytes),
       architecture: entity.architecture,
       os: entity.os,
+      platforms: this.mapPlatforms(entity.platforms, entity),
       pushedAt: entity.pushedAt,
       lastPulledAt: entity.lastPulledAt,
       vulnerabilitySummary,
     };
+  }
+
+  /**
+   * Rows synced before multi-arch support carry no platform list; fall back to
+   * the single architecture they recorded so the UI never shows an empty set.
+   */
+  private mapPlatforms(
+    platforms: DockerTagEntity['platforms'] | DockerImageDetailEntity['platforms'],
+    fallback: { architecture: string; os: string; digest: string; sizeBytes: number },
+  ): IDockerPlatform[] {
+    const parsed = typeof platforms === 'string' ? JSON.parse(platforms) : platforms;
+
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((p) => ({
+        architecture: p.architecture,
+        os: p.os,
+        variant: p.variant,
+        digest: p.digest,
+        sizeBytes: Number(p.sizeBytes),
+        isAttestation: p.isAttestation,
+      }));
+    }
+
+    return [{
+      architecture: fallback.architecture,
+      os: fallback.os,
+      digest: fallback.digest,
+      sizeBytes: Number(fallback.sizeBytes),
+    }];
   }
 
   private mapImageDetailToInterface(entity: DockerImageDetailEntity): IDockerImageDetail {
@@ -177,6 +219,7 @@ export class DockerService {
       digest: entity.digest,
       architecture: entity.architecture,
       os: entity.os,
+      platforms: this.mapPlatforms(entity.platforms, entity),
       sizeBytes: Number(entity.sizeBytes),
       layers: typeof entity.layers === 'string' ? JSON.parse(entity.layers) : entity.layers || [],
       labels: typeof entity.labels === 'string' ? JSON.parse(entity.labels) : entity.labels || {},

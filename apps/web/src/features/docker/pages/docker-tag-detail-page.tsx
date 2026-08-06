@@ -1,11 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Layers, Tag, RefreshCw, Shield } from 'lucide-react';
+import { ArrowLeft, Cpu, Layers, Tag, RefreshCw, Shield } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { CopyCommand } from '@/components/shared/copy-command';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { formatPlatform, runnablePlatforms } from '../components/platform-badges';
 import { useDockerRepository, useDockerTags, useDockerImageDetail } from '@/services/queries/docker.queries';
 import { useRegistryConnections } from '@/services/queries/settings.queries';
 import { useSyncRegistryConnection } from '@/services/queries/settings.queries';
@@ -47,6 +48,9 @@ export default function DockerTagDetailPage() {
   }
 
   const vulns = tag?.vulnerabilitySummary;
+  // A multi-arch tag publishes one image per platform; show them all rather
+  // than only the one whose config the sync happened to read.
+  const platforms = runnablePlatforms(detail?.platforms ?? tag?.platforms ?? []);
 
   return (
     <div className="space-y-6">
@@ -85,7 +89,12 @@ export default function DockerTagDetailPage() {
           <CardContent className="space-y-3">
             {[
               { label: 'Digest', value: detail?.digest || tag?.digest || '-', mono: true },
-              { label: 'Architecture', value: `${detail?.os || tag?.os || '-'}/${detail?.architecture || tag?.architecture || '-'}` },
+              {
+                label: platforms.length > 1 ? 'Platforms' : 'Architecture',
+                value: platforms.length > 0
+                  ? platforms.map(formatPlatform).join(', ')
+                  : `${detail?.os || tag?.os || '-'}/${detail?.architecture || tag?.architecture || '-'}`,
+              },
               { label: 'Size', value: formatBytes(detail?.sizeBytes || tag?.sizeBytes || 0) },
               { label: 'Pushed', value: detail?.createdAt ? formatRelativeTime(detail.createdAt) : tag?.pushedAt ? formatRelativeTime(tag.pushedAt) : '-' },
               ...(tag?.lastPulledAt ? [{ label: 'Last Pulled', value: formatRelativeTime(tag.lastPulledAt) }] : []),
@@ -130,6 +139,32 @@ export default function DockerTagDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Platforms — one entry per architecture published under this tag */}
+      {platforms.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Cpu className="h-4 w-4" /> Platforms
+              <Badge variant="outline" className="text-[10px] font-mono">{platforms.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {platforms.map((platform) => (
+              <div
+                key={platform.digest || formatPlatform(platform)}
+                className="flex items-center justify-between gap-3 rounded-lg border p-3"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium font-mono">{formatPlatform(platform)}</div>
+                  <code className="text-xs text-muted-foreground break-all">{platform.digest}</code>
+                </div>
+                <span className="text-xs font-medium shrink-0">{formatBytes(platform.sizeBytes)}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Layers */}
       {detail?.layers && detail.layers.length > 0 && (

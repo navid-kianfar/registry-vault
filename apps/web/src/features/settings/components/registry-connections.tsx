@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RegistryBadge } from '@/components/shared/registry-badge';
-import { ExternalLink, User, Plus, Pencil, Trash2, KeyRound, RefreshCw } from 'lucide-react';
+import { ExternalLink, User, Plus, Pencil, Trash2, KeyRound, RefreshCw, Stethoscope } from 'lucide-react';
 import { RegistryType, CredentialAuthType } from '@registry-vault/shared';
 import {
   Dialog,
@@ -37,7 +37,8 @@ import {
   useUpdateCredential,
   useDeleteCredential,
 } from '@/services/queries/auth.queries';
-import type { IRegistryConnection } from '@registry-vault/shared';
+import { useRepairRegistry } from '@/services/queries/bulk-operations.queries';
+import type { IRegistryConnection, IRegistryRepairResult } from '@registry-vault/shared';
 
 const REGISTRY_TYPE_PLACEHOLDERS: Record<RegistryType, string> = {
   [RegistryType.Docker]: 'http://registry.example.com:5000',
@@ -61,6 +62,11 @@ export default function RegistryConnections() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [editing, setEditing] = useState<IRegistryConnection | null>(null);
   const [deleting, setDeleting] = useState<IRegistryConnection | null>(null);
+
+  const repairMutation = useRepairRegistry();
+  const [repairDialogOpen, setRepairDialogOpen] = useState(false);
+  const [repairing, setRepairing] = useState<IRegistryConnection | null>(null);
+  const [repairScan, setRepairScan] = useState<IRegistryRepairResult | null>(null);
 
   const [formType, setFormType] = useState<RegistryType>(RegistryType.Docker);
   const [formName, setFormName] = useState('');
@@ -158,6 +164,29 @@ export default function RegistryConnections() {
       deleteCredentialMutation.mutate(existingCred.id);
     }
     deleteMutation.mutate(deleting.id, { onSuccess: () => setDeleteDialogOpen(false) });
+  }
+
+  function handleRepairDialogChange(open: boolean) {
+    setRepairDialogOpen(open);
+    if (!open) {
+      setRepairing(null);
+      setRepairScan(null);
+    }
+  }
+
+  /** `apply: false` reports what is broken; `true` deletes those tags. */
+  function handleRepairScan(apply: boolean) {
+    if (!repairing) return;
+    repairMutation.mutate(
+      { registryConnectionId: repairing.id, apply },
+      {
+        onSuccess: (response) => {
+          // After a repair, keep the (now empty) result so the dialog shows
+          // what is left rather than a stale pre-repair list.
+          setRepairScan(response.data);
+        },
+      },
+    );
   }
 
   const hasCredential = (connId: string) => credentials?.some((c) => c.registryConnectionId === connId) ?? false;
@@ -259,6 +288,17 @@ export default function RegistryConnections() {
                     >
                       <RefreshCw className={`h-3.5 w-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
                     </Button>
+                    {connection.registryType === RegistryType.Docker && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => { setRepairing(connection); setRepairDialogOpen(true); }}
+                        title="Scan for half-deleted tags"
+                      >
+                        <Stethoscope className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(connection)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -467,6 +507,83 @@ export default function RegistryConnections() {
             <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
               {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Repair half-deleted tags */}
+      <Dialog open={repairDialogOpen} onOpenChange={handleRepairDialogChange}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Repair Half-Deleted Tags</DialogTitle>
+            <DialogDescription>
+              Scans <span className="font-medium text-foreground">{repairing?.name}</span> for tags
+              whose image content is missing — they still appear in the registry but cannot be
+              pulled. Repairing deletes those tags. Nothing is deleted until you confirm.
+            </DialogDescription>
+          </DialogHeader>
+
+          {repairScan && (
+            <div className="max-h-64 space-y-2 overflow-y-auto rounded-lg border p-3">
+              {repairScan.applied ? (
+                <>
+                  <p className="text-sm">
+                    Repaired <span className="font-medium">{repairScan.repairedTags}</span> tag(s)
+                    across {repairScan.repositories.length} repositories.
+                  </p>
+                  {repairScan.failures.map((failure) => (
+                    <div key={`${failure.repository}:${failure.tag}`} className="text-xs text-destructive">
+                      <span className="font-mono">{failure.repository}:{failure.tag}</span> — {failure.reason}
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground">
+                    Disk space is reclaimed when the registry next garbage-collects.
+                  </p>
+                </>
+              ) : repairScan.danglingTags === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Scanned {repairScan.scannedRepositories} repositories — nothing to repair.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm">
+                    <span className="font-medium">{repairScan.danglingTags}</span> half-deleted tag(s)
+                    across {repairScan.repositories.length} repositories:
+                  </p>
+                  {repairScan.repositories.map((repo) => (
+                    <div key={repo.repository} className="text-xs">
+                      <span className="font-mono font-medium">{repo.repository}</span>
+                      <span className="text-muted-foreground"> — {repo.danglingTags.length} tag(s)</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleRepairDialogChange(false)}>Close</Button>
+            <Button
+              variant="outline"
+              onClick={() => handleRepairScan(false)}
+              disabled={repairMutation.isPending}
+            >
+              {repairMutation.isPending ? 'Scanning...' : 'Scan'}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => handleRepairScan(true)}
+              disabled={
+                repairMutation.isPending ||
+                !repairScan ||
+                repairScan.applied ||
+                repairScan.danglingTags === 0
+              }
+            >
+              {repairScan && !repairScan.applied && repairScan.danglingTags > 0
+                ? `Delete ${repairScan.danglingTags} tag(s)`
+                : 'Repair'}
             </Button>
           </DialogFooter>
         </DialogContent>

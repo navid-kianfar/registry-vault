@@ -274,9 +274,53 @@ In Docker the `.env` file stays on the host: Docker reads it and passes the valu
 - View detailed tag / version metadata
 
 ### Cleanup & Retention
-- **Bulk delete** selected tags or package versions
+- **Bulk delete** selected tags or package versions, or whole repositories/packages
 - **Cleanup**: keep N latest versions or delete versions older than N days
 - **Retention policies**: define rules per registry type, enable/disable, run on demand
+- **Repair**: scan a Docker registry for half-deleted tags and finish removing them
+
+### Multi-arch images
+A tag that was built for several platforms points at an OCI index rather than a
+single image. Registry Vault lists every platform under the tag (attestation
+entries from `docker buildx` are not shown), and the tag's digest is the index
+digest — the one `docker pull` resolves.
+
+### How Docker deletion works
+The Registry V2 API deletes by digest, not by tag name, so Registry Vault
+deletes the digest a tag resolves to — never the platform manifests inside it.
+Two consequences are worth knowing:
+
+- **Tags sharing a digest go together.** `latest` and the version tag built from
+  the same image are one manifest; deleting either removes both. The API
+  reports every tag that went with it.
+- **Disk space is reclaimed separately.** Deleting a manifest untags content;
+  the registry frees it during garbage collection. On the registry host:
+
+  ```bash
+  registry garbage-collect --delete-untagged=true /etc/docker/registry/config.yml
+  ```
+
+  Until then the repository name can linger in `/v2/_catalog` with no tags.
+  Registry Vault does not mirror tagless repositories, so they disappear from
+  the UI on the next sync.
+
+Deleting requires a registry that permits it (`REGISTRY_STORAGE_DELETE_ENABLED=true`)
+and credentials with delete rights; when either is missing the delete is
+reported as failed and the local record is kept rather than silently hidden.
+
+#### Repairing half-deleted tags
+
+A tag whose platform manifests were deleted while the tag itself survived stays
+listed but cannot be pulled (`manifest unknown`). Settings → Registries →
+**Scan for half-deleted tags** finds these and, on confirmation, removes them.
+
+The same scan runs from the CLI without the app:
+
+```bash
+node scripts/registry-repair.mjs --url https://registry.example.com --username USER --password PASS
+```
+
+Add `--apply` to delete what it finds, and `--repo PREFIX` to limit the scope.
 
 ### User & Access Management
 - Create, edit, deactivate, and delete users
@@ -323,6 +367,7 @@ All endpoints are prefixed with `/api`.
 | GET/POST/PATCH/DELETE | `/settings/webhooks` | Webhook CRUD |
 | POST | `/bulk/delete` | Bulk delete items |
 | POST | `/bulk/cleanup` | Cleanup versions by count or age |
+| POST | `/bulk/repair` | Scan (and with `apply: true`, remove) half-deleted Docker tags |
 
 ---
 

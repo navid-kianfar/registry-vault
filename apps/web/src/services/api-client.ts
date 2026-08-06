@@ -39,6 +39,8 @@ import type {
   IBulkDeleteRequest,
   IBulkDeleteResult,
   ICleanupVersionsRequest,
+  IRegistryRepairRequest,
+  IRegistryRepairResult,
   ICreateUserRequest,
   IUpdateUserRequest,
   IChangePasswordRequest,
@@ -108,4 +110,5 @@ export interface IApiClient {
   // Bulk operations
   bulkDelete(request: IBulkDeleteRequest): Promise<ApiResponse<IBulkDeleteResult>>;
   cleanupVersions(request: ICleanupVersionsRequest): Promise<ApiResponse<IBulkDeleteResult>>;
+  repairRegistry(request: IRegistryRepairRequest): Promise<ApiResponse<IRegistryRepairResult>>;
 }

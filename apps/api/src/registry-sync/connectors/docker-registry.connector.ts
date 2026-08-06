@@ -2,6 +2,52 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { normalizeRegistryUrl, resolveRegistryUrl, describeFetchFailure } from './registry-url';
 
+/** Every manifest media type we can resolve: single-arch, OCI, and index/list. */
+const MANIFEST_ACCEPT = [
+  'application/vnd.docker.distribution.manifest.v2+json',
+  'application/vnd.oci.image.manifest.v1+json',
+  'application/vnd.docker.distribution.manifest.list.v2+json',
+  'application/vnd.oci.image.index.v1+json',
+].join(', ');
+
+export interface DockerDeleteResult {
+  ok: boolean;
+  reason: string;
+}
+
+export interface DockerTagDeleteResult extends DockerDeleteResult {
+  /**
+   * Tags actually removed from the registry. A manifest delete removes every
+   * tag sharing that digest, so this can be wider than the requested tag.
+   */
+  removedTags: string[];
+}
+
+export interface DockerDeleteOutcome {
+  requested: number;
+  deleted: number;
+  failures: { tag: string; reason: string }[];
+}
+
+export interface DockerPlatformInfo {
+  architecture: string;
+  os: string;
+  variant?: string;
+  digest: string;
+  sizeBytes: number;
+  isAttestation?: boolean;
+  /** False when the registry no longer holds this platform's manifest. */
+  exists: boolean;
+}
+
+export interface DanglingTag {
+  tag: string;
+  /** Digest the tag resolves to, when the tag manifest itself still exists. */
+  digest: string | null;
+  /** Human-readable list of references the registry no longer holds. */
+  missing: string[];
+}
+
 interface WwwAuthenticateParams {
   realm: string;
   service?: string;
@@ -294,6 +340,13 @@ export class DockerRegistryConnector {
     }
   }
 
+  /**
+   * Resolve a tag to a *platform-specific* manifest, following a manifest list
+   * when it finds one. Use this for reading image details.
+   *
+   * Never use its `_digest` for deletes — for a multi-arch tag it is the child
+   * manifest's digest, not the tag's. Use `getTagDigest()` there.
+   */
   async getManifest(
     url: string,
     repository: string,
@@ -306,12 +359,7 @@ export class DockerRegistryConnector {
       const baseUrl = this.normalizeUrl(url);
       const headers: Record<string, string> = {
         // Accept both single-arch and multi-arch (manifest list / OCI index) formats
-        Accept: [
-          'application/vnd.docker.distribution.manifest.v2+json',
-          'application/vnd.oci.image.manifest.v1+json',
-          'application/vnd.docker.distribution.manifest.list.v2+json',
-          'application/vnd.oci.image.index.v1+json',
-        ].join(', '),
+        Accept: MANIFEST_ACCEPT,
         ...this.resolveAuthHeaders(token, username, password),
       };
 
@@ -391,34 +439,103 @@ export class DockerRegistryConnector {
   }
 
   /**
-   * High-level helper: get a scoped delete token then delete all tags for a repo.
-   * Returns the number of tags successfully deleted on the registry.
+   * Resolve the digest the *tag itself* points at.
+   *
+   * This is deliberately NOT `getManifest()`: that helper follows a manifest
+   * list down into the platform-specific child manifest, so its `_digest` is
+   * the child's. Deleting a child leaves the tag and its index in place while
+   * gutting the image behind them — the registry keeps listing the tag and
+   * every pull fails with `manifest unknown`. Deletes must always target the
+   * digest the tag resolves to.
+   */
+  async getTagDigest(
+    url: string,
+    repository: string,
+    tag: string,
+    token?: string,
+    username?: string,
+    password?: string,
+  ): Promise<string | null> {
+    const baseUrl = this.normalizeUrl(url);
+    const headers: Record<string, string> = {
+      Accept: MANIFEST_ACCEPT,
+      ...this.resolveAuthHeaders(token, username, password),
+    };
+    const manifestUrl = `${baseUrl}/v2/${repository}/manifests/${tag}`;
+
+    // HEAD is the cheap path; some proxies drop it, so fall back to GET.
+    for (const method of ['HEAD', 'GET'] as const) {
+      const response = await this.fetchWithTimeout(manifestUrl, { method, headers });
+      if (response.status === 404) return null;
+      if (response.ok) {
+        const digest = response.headers.get('docker-content-digest');
+        if (digest) return digest;
+      }
+    }
+
+    this.logger.warn(`Could not resolve a content digest for ${repository}:${tag}`);
+    return null;
+  }
+
+  /**
+   * High-level helper: get a scoped delete token then delete every tag of a repo.
+   *
+   * Only the digests the tags resolve to are deleted. Child manifests are left
+   * for the registry's garbage collector on purpose: several tags routinely
+   * share the same child (e.g. `latest` and the version tag built from it), so
+   * deleting children directly would corrupt tags the caller never selected.
    */
   async deleteRepository(
     url: string,
     repository: string,
     username?: string,
     password?: string,
-  ): Promise<number> {
+  ): Promise<DockerDeleteOutcome> {
     const token = await this.getToken(url, username, password, `repository:${repository}:pull,delete`);
 
     const tags = await this.listTags(url, repository, token ?? undefined, username, password);
-    let deleted = 0;
+    const outcome: DockerDeleteOutcome = { requested: tags.length, deleted: 0, failures: [] };
+    // Tags sharing a digest are removed by a single DELETE; remember which.
+    const handled = new Set<string>();
 
     for (const tag of tags) {
-      const manifest = await this.getManifest(url, repository, tag, token ?? undefined, username, password);
-      const digest = manifest?._digest ?? manifest?.config?.digest;
-      if (digest) {
-        const ok = await this.deleteManifest(url, repository, digest, token ?? undefined, username, password);
-        if (ok) deleted++;
+      const digest = await this.getTagDigest(url, repository, tag, token ?? undefined, username, password);
+
+      if (!digest) {
+        // Already gone — either never resolvable or removed with a sibling tag.
+        outcome.deleted++;
+        continue;
+      }
+
+      if (handled.has(digest)) {
+        outcome.deleted++;
+        continue;
+      }
+
+      const result = await this.deleteManifest(
+        url, repository, digest, token ?? undefined, username, password,
+      );
+
+      if (result.ok) {
+        handled.add(digest);
+        outcome.deleted++;
+      } else {
+        outcome.failures.push({ tag, reason: result.reason });
       }
     }
 
-    return deleted;
+    return outcome;
   }
 
   /**
-   * High-level helper: delete a single tag by name.
+   * High-level helper: delete a single tag, leaving the rest of the repository
+   * intact.
+   *
+   * The Registry V2 API has no "delete this tag" call — a delete always targets
+   * a digest, and that removes *every* tag pointing at it. Tags routinely share
+   * a digest (`latest` and the version tag built from it), so the siblings that
+   * go with it are resolved up front and reported in `removedTags`; callers
+   * must reconcile all of them, not just the requested one.
    */
   async deleteTagByName(
     url: string,
@@ -426,12 +543,219 @@ export class DockerRegistryConnector {
     tagName: string,
     username?: string,
     password?: string,
-  ): Promise<boolean> {
+    options?: { protectTags?: string[] },
+  ): Promise<DockerTagDeleteResult> {
     const token = await this.getToken(url, username, password, `repository:${repository}:pull,delete`);
-    const manifest = await this.getManifest(url, repository, tagName, token ?? undefined, username, password);
-    const digest = manifest?._digest ?? manifest?.config?.digest;
-    if (!digest) return false;
-    return this.deleteManifest(url, repository, digest, token ?? undefined, username, password);
+    const auth = token ?? undefined;
+    const digest = await this.getTagDigest(url, repository, tagName, auth, username, password);
+
+    if (!digest) {
+      // Nothing left on the registry to remove.
+      return { ok: true, reason: 'Tag is not present on the registry', removedTags: [tagName] };
+    }
+
+    const siblings = await this.findTagsWithDigest(url, repository, digest, auth, username, password);
+
+    // Refuse when the delete would also take a tag the caller wants kept —
+    // e.g. retention deleting an old version tag that `latest` also points at.
+    const protectedHits = (options?.protectTags ?? []).filter(
+      (protectedTag) => protectedTag !== tagName && siblings.includes(protectedTag),
+    );
+    if (protectedHits.length > 0) {
+      return {
+        ok: false,
+        reason: `Skipped: shares its manifest with ${protectedHits.join(', ')}, which would be deleted too`,
+        removedTags: [],
+      };
+    }
+
+    const result = await this.deleteManifest(url, repository, digest, auth, username, password);
+
+    return {
+      ...result,
+      removedTags: result.ok
+        ? Array.from(new Set([tagName, ...siblings]))
+        : [],
+    };
+  }
+
+  /**
+   * Every tag in the repository that resolves to `digest` — i.e. the tags a
+   * single manifest delete will take with it.
+   */
+  async findTagsWithDigest(
+    url: string,
+    repository: string,
+    digest: string,
+    token?: string,
+    username?: string,
+    password?: string,
+  ): Promise<string[]> {
+    const tags = await this.listTags(url, repository, token, username, password);
+    const matches: string[] = [];
+
+    for (const tag of tags) {
+      const tagDigest = await this.getTagDigest(url, repository, tag, token, username, password);
+      if (tagDigest === digest) {
+        matches.push(tag);
+      }
+    }
+
+    return matches;
+  }
+
+  /**
+   * Resolve every platform published under a tag.
+   *
+   * A multi-arch tag points at an index listing one manifest per platform (plus
+   * buildx attestation entries, which are flagged rather than dropped). A
+   * single-platform tag reports one entry, so callers can treat both alike.
+   */
+  async getTagPlatforms(
+    url: string,
+    repository: string,
+    tag: string,
+    token?: string,
+    username?: string,
+    password?: string,
+  ): Promise<DockerPlatformInfo[]> {
+    const manifest = await this.getRawManifest(url, repository, tag, token, username, password);
+    if (!manifest) return [];
+
+    // Single-platform tag: the config blob carries the platform.
+    if (!manifest.manifests || manifest.manifests.length === 0) {
+      const size = (manifest.layers ?? []).reduce((sum, l) => sum + (l.size ?? 0), 0);
+      let architecture = 'unknown';
+      let os = 'unknown';
+
+      if (manifest.config?.digest) {
+        const config = await this.getImageConfig(
+          url, repository, manifest.config.digest, token, username, password,
+        );
+        architecture = config?.architecture ?? architecture;
+        os = config?.os ?? os;
+      }
+
+      return [{
+        architecture,
+        os,
+        digest: manifest._digest ?? '',
+        sizeBytes: size,
+        exists: true,
+      }];
+    }
+
+    const platforms: DockerPlatformInfo[] = [];
+
+    for (const entry of manifest.manifests) {
+      // buildx records provenance/SBOM as index entries with an unknown
+      // platform; they are not runnable images.
+      const isAttestation =
+        entry.platform?.os === 'unknown' ||
+        entry.platform?.architecture === 'unknown' ||
+        Boolean((entry as { annotations?: Record<string, string> }).annotations?.['vnd.docker.reference.type']);
+
+      // Attestations are never shown or sized, so skip the extra round trip
+      // and trust the index entry — a tag with many platforms would otherwise
+      // double its manifest fetches for data nothing reads.
+      const child = isAttestation
+        ? null
+        : await this.getRawManifest(url, repository, entry.digest, token, username, password);
+
+      const sizeBytes = child
+        ? (child.layers ?? []).reduce((sum, l) => sum + (l.size ?? 0), 0)
+        : 0;
+
+      platforms.push({
+        architecture: entry.platform?.architecture ?? 'unknown',
+        os: entry.platform?.os ?? 'unknown',
+        variant: (entry.platform as { variant?: string } | undefined)?.variant,
+        digest: entry.digest,
+        sizeBytes,
+        isAttestation,
+        // A missing child is the fingerprint of a partial delete; an
+        // unfetched attestation is not evidence either way.
+        exists: isAttestation || child !== null,
+      });
+    }
+
+    return platforms;
+  }
+
+  /**
+   * Report tags whose manifest is missing or references content the registry no
+   * longer has, i.e. tags left dangling by a partial delete.
+   */
+  async findDanglingTags(
+    url: string,
+    repository: string,
+    username?: string,
+    password?: string,
+  ): Promise<DanglingTag[]> {
+    const token = await this.getToken(url, username, password, `repository:${repository}:pull,delete`);
+    const auth = token ?? undefined;
+    const tags = await this.listTags(url, repository, auth, username, password);
+    const dangling: DanglingTag[] = [];
+
+    for (const tag of tags) {
+      const digest = await this.getTagDigest(url, repository, tag, auth, username, password);
+
+      if (!digest) {
+        dangling.push({ tag, digest: null, missing: ['tag manifest'] });
+        continue;
+      }
+
+      const platforms = await this.getTagPlatforms(url, repository, tag, auth, username, password);
+      const missing = platforms
+        .filter((p) => !p.exists)
+        .map((p) => `${p.os}/${p.architecture} manifest ${p.digest}`);
+
+      if (missing.length > 0) {
+        dangling.push({ tag, digest, missing });
+      }
+    }
+
+    return dangling;
+  }
+
+  /**
+   * Fetch a manifest exactly as the reference resolves it, without following a
+   * manifest list into a platform-specific child.
+   */
+  async getRawManifest(
+    url: string,
+    repository: string,
+    reference: string,
+    token?: string,
+    username?: string,
+    password?: string,
+  ): Promise<DockerManifest | null> {
+    try {
+      const baseUrl = this.normalizeUrl(url);
+      const headers: Record<string, string> = {
+        Accept: MANIFEST_ACCEPT,
+        ...this.resolveAuthHeaders(token, username, password),
+      };
+
+      const response = await this.fetchWithTimeout(
+        `${baseUrl}/v2/${repository}/manifests/${reference}`,
+        { method: 'GET', headers },
+      );
+
+      if (!response.ok) return null;
+
+      const manifest = await response.json() as DockerManifest;
+      const digest = response.headers.get('docker-content-digest');
+      if (digest) {
+        manifest._digest = digest;
+      }
+      return manifest;
+    } catch (error: unknown) {
+      this.logger.error(
+        `getRawManifest failed for ${repository}:${reference}: ${(error as Error).message}`,
+      );
+      return null;
+    }
   }
 
   async deleteManifest(
@@ -441,14 +765,9 @@ export class DockerRegistryConnector {
     token?: string,
     username?: string,
     password?: string,
-  ): Promise<boolean> {
+  ): Promise<DockerDeleteResult> {
     try {
       const baseUrl = this.normalizeUrl(url);
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
       const deleteHeaders = this.resolveAuthHeaders(token, username, password);
 
       const response = await this.fetchWithTimeout(
@@ -457,19 +776,32 @@ export class DockerRegistryConnector {
       );
 
       if (response.status === 202 || response.status === 200) {
-        return true;
+        return { ok: true, reason: 'Deleted' };
       }
 
-      this.logger.warn(
-        `deleteManifest for ${repository}@${digest} returned status ${response.status}`,
-      );
-      return false;
+      // Already absent — the caller's goal is met either way.
+      if (response.status === 404) {
+        return { ok: true, reason: 'Already absent on the registry' };
+      }
+
+      const reason = this.describeDeleteFailure(response.status);
+      this.logger.warn(`deleteManifest for ${repository}@${digest}: ${reason}`);
+      return { ok: false, reason };
     } catch (error: unknown) {
-      this.logger.error(
-        `deleteManifest failed for ${repository}@${digest}: ${(error as Error).message}`,
-      );
-      return false;
+      const reason = (error as Error).message;
+      this.logger.error(`deleteManifest failed for ${repository}@${digest}: ${reason}`);
+      return { ok: false, reason };
     }
+  }
+
+  private describeDeleteFailure(status: number): string {
+    if (status === 405) {
+      return 'Registry refused the delete (HTTP 405) — deletion is disabled on this registry; set REGISTRY_STORAGE_DELETE_ENABLED=true';
+    }
+    if (status === 401 || status === 403) {
+      return `Registry rejected the delete (HTTP ${status}) — the configured credentials lack delete permission on this repository`;
+    }
+    return `Registry delete failed with HTTP ${status}`;
   }
 
   // ---- Private helpers ----

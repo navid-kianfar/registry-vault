@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
 import type { IRegistrySyncResult } from '@registry-vault/shared';
 import { RegistryType, CredentialAuthType, AuditAction } from '@registry-vault/shared/enums';
 
@@ -215,6 +215,30 @@ export class RegistrySyncService {
           where: { name: repoName, registryConnectionId: connection.id },
         });
 
+        // 2. Get a token scoped for this repository
+        const token = await this.dockerConnector.getToken(
+          url,
+          username,
+          password,
+          `repository:${repoName}:pull`,
+        );
+
+        // 3. List tags for this repository
+        const tags = await this.dockerConnector.listTags(url, repoName, token ?? undefined, username, password);
+
+        // A registry keeps a repository in its catalog after its last tag is
+        // deleted, until garbage collection removes the directory. Mirroring
+        // those would resurrect just-deleted packages as empty ghosts.
+        if (tags.length === 0) {
+          if (repoEntity) {
+            await this.dockerTagRepo.delete({ repositoryId: repoEntity.id });
+            await this.dockerImageRepo.delete({ repositoryId: repoEntity.id });
+            await this.dockerRepoRepo.remove(repoEntity);
+            this.logger.log(`Dropped ${repoName}: no tags left on the registry`);
+          }
+          continue;
+        }
+
         if (!repoEntity) {
           repoEntity = await this.dockerRepoRepo.save(
             this.dockerRepoRepo.create({
@@ -228,16 +252,6 @@ export class RegistrySyncService {
           );
         }
 
-        // 2. Get a token scoped for this repository
-        const token = await this.dockerConnector.getToken(
-          url,
-          username,
-          password,
-          `repository:${repoName}:pull`,
-        );
-
-        // 3. List tags for this repository
-        const tags = await this.dockerConnector.listTags(url, repoName, token ?? undefined, username, password);
         repoEntity.tagCount = tags.length;
 
         let totalRepoSize = 0;
@@ -257,15 +271,39 @@ export class RegistrySyncService {
 
             if (!manifest) continue;
 
+            // The digest the *tag* resolves to (the index digest for a
+            // multi-arch tag) — what `docker pull` sees and what a delete must
+            // target. `manifest._digest` is the platform child's digest.
             const manifestDigest =
-              manifest._digest ?? manifest.config?.digest ?? '';
+              (await this.dockerConnector.getTagDigest(
+                url,
+                repoName,
+                tagName,
+                token ?? undefined,
+                username,
+                password,
+              )) ?? manifest._digest ?? '';
+
+            // Record every platform the tag publishes, not just the one we
+            // resolved the config from.
+            const platformInfo = await this.dockerConnector.getTagPlatforms(
+              url,
+              repoName,
+              tagName,
+              token ?? undefined,
+              username,
+              password,
+            );
+            const platforms = platformInfo.map(({ exists: _exists, ...platform }) => platform);
+
             const layerSizes: number[] = (manifest.layers ?? []).map(
               (l) => l.size ?? 0,
             );
-            const totalTagSize = layerSizes.reduce(
-              (sum: number, s: number) => sum + s,
-              0,
-            );
+            // Multi-arch: bill the whole tag, since every platform occupies
+            // storage. Single-arch collapses to the same number as before.
+            const totalTagSize = platforms.length > 0
+              ? platforms.reduce((sum, p) => sum + p.sizeBytes, 0)
+              : layerSizes.reduce((sum: number, s: number) => sum + s, 0);
             totalRepoSize += totalTagSize;
 
             // 5. Get image config for architecture/os info
@@ -309,6 +347,7 @@ export class RegistrySyncService {
                 sizeBytes: totalTagSize,
                 architecture,
                 os,
+                platforms,
                 pushedAt: tagPushedAt,
                 vulnerabilitySummary: {
                   critical: 0,
@@ -323,6 +362,7 @@ export class RegistrySyncService {
               tagEntity.sizeBytes = totalTagSize;
               tagEntity.architecture = architecture;
               tagEntity.os = os;
+              tagEntity.platforms = platforms;
               tagEntity.pushedAt = tagPushedAt;
             }
 
@@ -359,6 +399,7 @@ export class RegistrySyncService {
                   digest: manifestDigest,
                   architecture,
                   os,
+                  platforms,
                   sizeBytes: totalTagSize,
                   layers,
                   labels,
@@ -373,6 +414,7 @@ export class RegistrySyncService {
                 imageDetail.digest = manifestDigest;
                 imageDetail.architecture = architecture;
                 imageDetail.os = os;
+                imageDetail.platforms = platforms;
                 imageDetail.sizeBytes = totalTagSize;
                 imageDetail.layers = layers;
                 imageDetail.labels = labels;
@@ -391,6 +433,20 @@ export class RegistrySyncService {
               `Failed to sync tag ${repoName}:${tagName}: ${(tagError as Error).message}`,
             );
           }
+        }
+
+        // Drop mirrored tags the registry no longer has, so a tag deleted
+        // anywhere (here, another client, `docker` CLI) stops being listed.
+        const staleTags = await this.dockerTagRepo.find({
+          where: { repositoryId: repoEntity.id, name: Not(In(tags)) },
+        });
+        if (staleTags.length > 0) {
+          const staleNames = staleTags.map((t) => t.name);
+          await this.dockerTagRepo.delete({ repositoryId: repoEntity.id, name: In(staleNames) });
+          await this.dockerImageRepo.delete({ repositoryId: repoEntity.id, tag: In(staleNames) });
+          this.logger.log(
+            `Removed ${staleNames.length} stale tag(s) from ${repoName}: ${staleNames.slice(0, 5).join(', ')}`,
+          );
         }
 
         repoEntity.totalSize = totalRepoSize;

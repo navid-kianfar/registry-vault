@@ -32,6 +32,17 @@ export class DockerTagEntity {
   @Column()
   os!: string;
 
+  /** Every platform under this tag; one entry for single-platform tags. */
+  @Column({ type: 'simple-json', nullable: true })
+  platforms?: Array<{
+    architecture: string;
+    os: string;
+    variant?: string;
+    digest: string;
+    sizeBytes: number;
+    isAttestation?: boolean;
+  }>;
+
   @Column()
   pushedAt!: string;
 

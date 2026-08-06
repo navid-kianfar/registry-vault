@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PlatformBadges } from '../components/platform-badges';
 import { useDockerRepository, useDockerTags } from '@/services/queries/docker.queries';
 import { useBulkDelete, useCleanupVersions } from '@/services/queries/bulk-operations.queries';
 import { useSelection } from '@/hooks/use-selection';
@@ -85,10 +86,7 @@ function TagRow({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm font-mono">{tag.name}</span>
-            <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0">
-              <Cpu className="h-2.5 w-2.5 mr-1" />
-              {tag.os}/{tag.architecture}
-            </Badge>
+            <PlatformBadges platforms={tag.platforms} />
           </div>
           <div className="flex items-center gap-3 mt-1 flex-wrap">
             <span className="text-xs text-muted-foreground font-mono">{tag.digest.slice(0, 19)}...</span>

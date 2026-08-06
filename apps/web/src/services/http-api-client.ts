@@ -40,6 +40,8 @@ import type {
   IBulkDeleteRequest,
   IBulkDeleteResult,
   ICleanupVersionsRequest,
+  IRegistryRepairRequest,
+  IRegistryRepairResult,
   ICreateUserRequest,
   IUpdateUserRequest,
   IChangePasswordRequest,
@@ -385,6 +387,15 @@ class HttpApiClient implements IApiClient {
     request: ICleanupVersionsRequest,
   ): Promise<ApiResponse<IBulkDeleteResult>> {
     return apiFetch('/bulk/cleanup', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async repairRegistry(
+    request: IRegistryRepairRequest,
+  ): Promise<ApiResponse<IRegistryRepairResult>> {
+    return apiFetch('/bulk/repair', {
       method: 'POST',
       body: JSON.stringify(request),
     });

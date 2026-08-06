@@ -3,6 +3,8 @@ import type {
   IBulkDeleteRequest,
   IBulkDeleteResult,
   ICleanupVersionsRequest,
+  IRegistryRepairRequest,
+  IRegistryRepairResult,
 } from '@registry-vault/shared';
 import { BulkService } from './bulk.service';
 
@@ -22,5 +24,16 @@ export class BulkController {
     @Body() body: ICleanupVersionsRequest,
   ): Promise<IBulkDeleteResult> {
     return this.bulkService.cleanupVersions(body);
+  }
+
+  /**
+   * Scan a Docker registry for tags left dangling by a partial delete and, with
+   * `apply: true`, finish removing them. Defaults to a dry run.
+   */
+  @Post('repair')
+  async repairRegistry(
+    @Body() body: IRegistryRepairRequest,
+  ): Promise<IRegistryRepairResult> {
+    return this.bulkService.repairDockerRegistry(body);
   }
 }

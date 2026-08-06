@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DockerRepositoryEntity } from '../docker/entities/docker-repository.entity';
 import { DockerTagEntity } from '../docker/entities/docker-tag.entity';
+import { DockerImageDetailEntity } from '../docker/entities/docker-image-detail.entity';
 import { NpmPackageEntity } from '../npm/entities/npm-package.entity';
 import { NpmPackageVersionEntity } from '../npm/entities/npm-package-version.entity';
 import { NuGetPackageEntity } from '../nuget/entities/nuget-package.entity';
@@ -17,6 +18,7 @@ import { BulkController } from './bulk.controller';
     TypeOrmModule.forFeature([
       DockerRepositoryEntity,
       DockerTagEntity,
+      DockerImageDetailEntity,
       NpmPackageEntity,
       NpmPackageVersionEntity,
       NuGetPackageEntity,
