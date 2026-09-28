@@ -6,6 +6,8 @@ import { DEFAULT_PAGE_SIZE, RegistryType } from '@registry-vault/shared';
 import { PageHeader } from '@/components/shared/page-header';
 import { EmptyState } from '@/components/shared/empty-state';
 import { BulkActionsBar } from '@/components/shared/bulk-actions-bar';
+import { ADMIN_ONLY_REASON, GatedControl } from '@/components/shared/gated-control';
+import { useIsAdmin } from '@/hooks/use-is-admin';
 import { BulkDeleteConfirmationDialog } from '@/components/shared/bulk-delete-confirmation-dialog';
 import { DataTablePagination } from '@/components/data-table/data-table-pagination';
 import { Badge } from '@/components/ui/badge';
@@ -116,6 +118,7 @@ export default function NugetPackagesPage() {
   const allIds = useMemo(() => data?.items.map((p) => p.id) ?? [], [data?.items]);
   const selection = useSelection(allIds);
   const bulkDelete = useBulkDelete();
+  const isAdmin = useIsAdmin();
   const bulkCleanup = useBulkCleanup();
 
   const selectedItems = useMemo(
@@ -184,15 +187,19 @@ export default function NugetPackagesPage() {
             className="pl-8"
           />
         </div>
-        <Button
-          variant={selectionMode ? 'secondary' : 'outline'}
-          size="sm"
-          onClick={() => selectionMode ? handleExitSelectionMode() : setSelectionMode(true)}
-          className="gap-1.5 shrink-0"
-        >
-          <ListChecks className="h-4 w-4" />
-          {selectionMode ? 'Cancel' : 'Select'}
-        </Button>
+        {/* Selection here deletes whole packages, which stays administrator-only. */}
+        <GatedControl disabled={!isAdmin} reason={ADMIN_ONLY_REASON}>
+          <Button
+            variant={selectionMode ? 'secondary' : 'outline'}
+            size="sm"
+            disabled={!isAdmin}
+            onClick={() => selectionMode ? handleExitSelectionMode() : setSelectionMode(true)}
+            className="gap-1.5 shrink-0"
+          >
+            <ListChecks className="h-4 w-4" />
+            {selectionMode ? 'Cancel' : 'Select'}
+          </Button>
+        </GatedControl>
       </div>
 
       {selectionMode && allIds.length > 0 && (

@@ -153,6 +153,11 @@ export default function UsersPage() {
         </Button>
       </PageHeader>
 
+      <p className="text-sm text-muted-foreground">
+        Looking for <span className="font-mono">docker login</span> accounts? Those live under each
+        registry → Registry users.
+      </p>
+
       <div className="relative max-w-sm">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input

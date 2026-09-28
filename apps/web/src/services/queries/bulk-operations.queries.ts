@@ -25,26 +25,43 @@ export function reportCleanup(
   registryType: RegistryType,
   deleted: number,
   failures: IBulkDeleteFailure[],
+  /**
+   * Docker repositories the run left alone because it selects by pull activity
+   * and their registry has no agent. Silence here would read as "nothing
+   * matched" when the rule in fact never ran against them.
+   */
+  skippedRepositories?: string[],
 ): void {
+  const skippedNote =
+    skippedRepositories && skippedRepositories.length > 0
+      ? `Skipped ${skippedRepositories.length} repositories with no registry agent — they have no pull history to judge by.`
+      : undefined;
+
   if (failures.length > 0) {
     const reason = failures[0]?.reason ?? 'see logs';
     toast.error(
       deleted > 0
         ? `Deleted ${deleted}, failed ${failures.length} — ${reason}`
         : `Cleanup failed for ${failures.length} version(s) — ${reason}`,
+      { description: skippedNote },
     );
     return;
   }
 
   if (deleted === 0) {
-    toast.info('Nothing to clean up — no versions matched the rule');
+    toast.info('Nothing to clean up — no versions matched the rule', {
+      description: skippedNote,
+    });
     return;
   }
 
-  toast.success(`Deleted ${deleted} old version(s) from the registry`, {
-    description: registryType === RegistryType.Docker
+  const gcNote =
+    registryType === RegistryType.Docker
       ? 'Disk space is freed when the registry runs garbage collection.'
-      : undefined,
+      : undefined;
+
+  toast.success(`Deleted ${deleted} old version(s) from the registry`, {
+    description: [gcNote, skippedNote].filter(Boolean).join(' ') || undefined,
   });
 }
 

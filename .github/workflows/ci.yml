@@ -1,0 +1,91 @@
+name: CI
+
+# Every push and every pull request, except the v* tags — those are the release
+# workflow's, and it builds and publishes the same images itself.
+on:
+  pull_request:
+  push:
+    tags-ignore:
+      - 'v*'
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agent:
+    name: Agent (go vet, go test -race)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # The version comes from agent/go.mod, so the toolchain here and the
+      # toolchain in agent/Dockerfile cannot drift apart silently.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache-dependency-path: agent/go.sum
+
+      - name: go vet
+        working-directory: agent
+        run: go vet ./...
+
+      # -race is the point of this job: the agent is a supervisor, a proxy and
+      # a write gate sharing state across goroutines.
+      - name: go test -race
+        working-directory: agent
+        run: go test -race ./...
+
+  types:
+    name: Type check (api, web)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # pnpm pinned to the version the images install, rather than whatever is
+      # newest on the day.
+      - name: Install pnpm
+        run: npm install -g pnpm@11.5.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: tsc --noEmit (apps/api)
+        run: pnpm --filter @registry-vault/api type-check
+
+      - name: tsc --noEmit (apps/web)
+        run: pnpm --filter @registry-vault/web type-check
+
+  images:
+    name: Build images (linux/amd64, no push)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # All three targets in one bake call: the all-in-one takes the registry
+      # image's runtime stage as a named build context, and the two Node-based
+      # images share their build stages, so one call is both correct and the
+      # cheapest way to do it.
+      #
+      # type=cacheonly: the images are built and thrown away. Nothing is pushed
+      # and no credentials are needed, so this runs on a pull request from a
+      # fork as well.
+      - name: Build all three images
+        run: |
+          docker buildx bake \
+            -f docker-bake.hcl \
+            --set '*.platform=linux/amd64' \
+            --set '*.output=type=cacheonly' \
+            vault registry aio

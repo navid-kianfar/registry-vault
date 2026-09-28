@@ -74,6 +74,8 @@ export interface ICleanupVersionsRequest {
   keepCount?: number;
   /** Delete versions published before this date (ISO string) */
   olderThanDate?: string;
+  /** Docker only: delete tags not pulled for this many days (needs an agent). */
+  notPulledForDays?: number;
 }
 
 /** Outcome of running a retention policy against the registry. */
@@ -83,4 +85,11 @@ export interface IRetentionRunResult {
   /** Versions the policy selected that are still on the registry. */
   failed: number;
   failures: IBulkDeleteFailure[];
+  /**
+   * Names of the Docker repositories the policy did not touch because it
+   * selects by pulls and their registry has no agent, so there is no pull
+   * history to judge by. Skipping is deliberate: ignoring the criterion would
+   * widen the deletion to whatever the other rules pick.
+   */
+  skippedRepositories?: string[];
 }

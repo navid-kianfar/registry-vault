@@ -10,6 +10,7 @@ import { NuGetPackageVersionEntity } from '../nuget/entities/nuget-package-versi
 import { RegistryConnectionEntity } from '../settings/entities/registry-connection.entity';
 import { RegistryCredentialEntity } from '../settings/entities/registry-credential.entity';
 import { RegistrySyncModule } from '../registry-sync/registry-sync.module';
+import { AgentClientModule } from '../agent/agent-client.module';
 import { BulkService } from './bulk.service';
 import { BulkController } from './bulk.controller';
 
@@ -27,6 +28,7 @@ import { BulkController } from './bulk.controller';
       RegistryCredentialEntity,
     ]),
     RegistrySyncModule,
+    AgentClientModule,
   ],
   providers: [BulkService],
   controllers: [BulkController],

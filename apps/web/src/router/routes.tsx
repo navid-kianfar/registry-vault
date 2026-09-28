@@ -26,6 +26,8 @@ const RetentionPolicies = lazy(() => import('@/features/settings/components/rete
 const WebhooksList = lazy(() => import('@/features/settings/components/webhooks-list'));
 const LoginPage = lazy(() => import('@/features/auth/pages/login-page'));
 const RegistryPage = lazy(() => import('@/features/registry/pages/registry-page'));
+const RegistryMaintenancePage = lazy(() => import('@/features/registry/pages/registry-maintenance-page'));
+const RegistryUsersPage = lazy(() => import('@/features/registry/pages/registry-users-page'));
 
 function LazyPage({ children }: { children: React.ReactNode }) {
   return (
@@ -55,6 +57,8 @@ export const router = createBrowserRouter([
       { path: 'npm/:packageName/versions/:version', element: <LazyPage><NpmVersionDetailPage /></LazyPage> },
       // Registry-scoped routes (multiple registries of same kind)
       { path: 'registry/:connectionId', element: <LazyPage><RegistryPage /></LazyPage> },
+      { path: 'registry/:connectionId/maintenance', element: <LazyPage><RegistryMaintenancePage /></LazyPage> },
+      { path: 'registry/:connectionId/users', element: <LazyPage><RegistryUsersPage /></LazyPage> },
       { path: 'registry/:connectionId/docker/:repositoryId', element: <LazyPage><DockerRepositoryDetailPage /></LazyPage> },
       { path: 'registry/:connectionId/docker/:repositoryId/tags/:tagName', element: <LazyPage><DockerTagDetailPage /></LazyPage> },
       { path: 'registry/:connectionId/nuget/:packageId', element: <LazyPage><NuGetPackageDetailPage /></LazyPage> },

@@ -11,6 +11,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { REGISTRY_LABELS } from '@registry-vault/shared';
 import PullPushChart from '../components/pull-push-chart';
+import { LowDiskBanners, RegistryAgentsCard } from '../components/registry-agents-card';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { useAgentsOverview } from '@/services/queries/agent.queries';
 import {
   Container,
   Package,
@@ -34,6 +37,8 @@ export default function DashboardPage() {
     return { dateRange: { from, to }, granularity: 'day' as const };
   }, []);
   const { data: analyticsSummary } = useAnalyticsSummary(analyticsFilter);
+  const agentsOverview = useAgentsOverview();
+  const agents = agentsOverview.data ?? [];
 
   const chartData = useMemo(() => {
     if (!analyticsSummary) return [];
@@ -74,7 +79,10 @@ export default function DashboardPage() {
   if (!stats) return null;
 
   return (
+    <TooltipProvider>
     <div className="space-y-6">
+      <LowDiskBanners items={agents} />
+
       <PageHeader title="Dashboard" description="Overview of all registries and activity" />
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -142,6 +150,15 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
+        <RegistryAgentsCard
+          items={agents}
+          isLoading={agentsOverview.isLoading}
+          isError={agentsOverview.isError}
+          onRetry={() => void agentsOverview.refetch()}
+        />
+      </div>
+
+      <div className="grid gap-4">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold">Recent Activity</CardTitle>
@@ -175,5 +192,6 @@ export default function DashboardPage() {
         </Card>
       </div>
     </div>
+    </TooltipProvider>
   );
 }

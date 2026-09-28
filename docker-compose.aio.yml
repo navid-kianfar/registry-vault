@@ -1,0 +1,45 @@
+# Registry Vault, a CNCF Distribution registry and the registry agent in one
+# container (kianfar/registry-vault-aio).
+#
+#   cp .env.example .env     # then fill in the three required secrets
+#   docker compose -f docker-compose.aio.yml up -d
+#
+#   Registry Vault  http://localhost:8080
+#   registry        docker login localhost:5000
+#
+# Compose reads .env from this directory for the ${...} values below. The
+# variables are listed one by one rather than passed with env_file so that the
+# container gets exactly what it needs, and so an unset secret fails here with
+# a clear message instead of inside the container.
+services:
+  registry-vault:
+    image: kianfar/registry-vault-aio
+    ports:
+      - "8080:80"     # Registry Vault UI and API
+      - "5000:5000"   # the registry, behind the agent's authenticating proxy
+      # The agent's management API (:5080) stays on loopback inside the
+      # container. Registry Vault, in that same container, is its only client.
+    environment:
+      # Bearer key for the agent's management API, and the password of the
+      # service principal Registry Vault authenticates with on :5000.
+      AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY in .env — openssl rand -hex 24}
+      # Signs Registry Vault's access tokens.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env — openssl rand -base64 48}
+      # The initial admin password, used on first start with an empty database.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      # Reverse proxy in front of :5000 terminating TLS? List it (see .env.example).
+      AGENT_TRUSTED_PROXIES: ${AGENT_TRUSTED_PROXIES:-127.0.0.0/8,::1/128}
+      # Everything else the all-in-one image already defaults:
+      # EMBEDDED_REGISTRY_URL=http://127.0.0.1:5000
+      # EMBEDDED_AGENT_URL=http://127.0.0.1:5080
+      # AGENT_API_LISTEN=127.0.0.1:5080
+    volumes:
+      - registry-storage:/var/lib/registry        # images
+      - registry-agent-data:/var/lib/registry-agent  # users, events, GC history, Trivy DB
+      - registry-vault-data:/app/data             # Registry Vault's SQLite database
+    restart: unless-stopped
+
+volumes:
+  registry-storage:
+  registry-agent-data:
+  registry-vault-data:

@@ -1,5 +1,7 @@
 import { Controller, Delete, Get, Param, Query } from '@nestjs/common';
+import { Role } from '@registry-vault/shared/enums';
 import { DockerService } from './docker.service';
+import { Roles } from '../common/decorators/roles.decorator';
 
 @Controller('api/docker')
 export class DockerController {
@@ -49,7 +51,13 @@ export class DockerController {
     return this.dockerService.getImageDetail(id, tagName);
   }
 
+  /**
+   * Deleting a tag removes it from the registry itself, so it is not open to
+   * readers. Maintainers keep it: curating images is their job, unlike the
+   * registry-wide operations under /api/bulk.
+   */
   @Delete('repositories/:id/tags/:tagName')
+  @Roles(Role.Admin, Role.Maintainer)
   async deleteTag(
     @Param('id') id: string,
     @Param('tagName') tagName: string,

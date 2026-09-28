@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RegistryBadge } from '@/components/shared/registry-badge';
-import { Clock, Hash, Filter, Plus, Pencil, Trash2, Play } from 'lucide-react';
+import { Clock, Hash, Filter, Plus, Pencil, Trash2, Play, Download } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useRegistryConnections } from '@/services/queries/settings.queries';
 import { RegistryType } from '@registry-vault/shared';
 import {
   Dialog,
@@ -51,6 +53,16 @@ export default function RetentionPolicies() {
   const [formKeepLastN, setFormKeepLastN] = useState('');
   const [formOlderThanDays, setFormOlderThanDays] = useState('');
   const [formTagExclude, setFormTagExclude] = useState('');
+  const [formNotPulledForDays, setFormNotPulledForDays] = useState('');
+  const [formRunGcAfter, setFormRunGcAfter] = useState(false);
+
+  const { data: connections } = useRegistryConnections();
+  // A policy targets a registry TYPE, not a connection, so name which Docker
+  // registries this criterion will and will not reach.
+  const dockerConnections = connections?.filter((c) => c.registryType === RegistryType.Docker) ?? [];
+  const withAgent = dockerConnections.filter((c) => !!c.agent);
+  const withoutAgent = dockerConnections.filter((c) => !c.agent);
+  const isPullCriterionAvailable = withAgent.length > 0;
 
   function openCreate() {
     setEditing(null);
@@ -60,6 +72,8 @@ export default function RetentionPolicies() {
     setFormKeepLastN('');
     setFormOlderThanDays('');
     setFormTagExclude('');
+    setFormNotPulledForDays('');
+    setFormRunGcAfter(false);
     setDialogOpen(true);
   }
 
@@ -71,6 +85,8 @@ export default function RetentionPolicies() {
     setFormKeepLastN(policy.keepLastN != null ? String(policy.keepLastN) : '');
     setFormOlderThanDays(policy.olderThanDays != null ? String(policy.olderThanDays) : '');
     setFormTagExclude(policy.tagPatternExclude ?? '');
+    setFormNotPulledForDays(policy.notPulledForDays != null ? String(policy.notPulledForDays) : '');
+    setFormRunGcAfter(policy.runGcAfter ?? false);
     setDialogOpen(true);
   }
 
@@ -90,6 +106,11 @@ export default function RetentionPolicies() {
       keepLastN: formKeepLastN ? Number(formKeepLastN) : undefined,
       olderThanDays: formOlderThanDays ? Number(formOlderThanDays) : undefined,
       tagPatternExclude: formTagExclude || undefined,
+      notPulledForDays:
+        formType === RegistryType.Docker && formNotPulledForDays
+          ? Number(formNotPulledForDays)
+          : undefined,
+      runGcAfter: formType === RegistryType.Docker ? formRunGcAfter : undefined,
     };
 
     if (editing) {
@@ -202,7 +223,19 @@ export default function RetentionPolicies() {
                       Exclude: <code className="rounded bg-muted px-1">{policy.tagPatternExclude}</code>
                     </span>
                   )}
-                  {!policy.keepLastN && !policy.olderThanDays && (
+                  {policy.notPulledForDays != null && (
+                    <span className="flex items-center gap-1">
+                      <Download className="h-3 w-3" />
+                      Not pulled for {policy.notPulledForDays} days
+                    </span>
+                  )}
+                  {policy.runGcAfter && (
+                    <span className="flex items-center gap-1">
+                      <Trash2 className="h-3 w-3" />
+                      Runs GC afterwards
+                    </span>
+                  )}
+                  {!policy.keepLastN && !policy.olderThanDays && !policy.notPulledForDays && (
                     <span className="italic">No criteria set</span>
                   )}
                 </div>
@@ -220,7 +253,7 @@ export default function RetentionPolicies() {
 
       {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editing ? 'Edit Retention Policy' : 'Add Retention Policy'}</DialogTitle>
             <DialogDescription>
@@ -281,6 +314,63 @@ export default function RetentionPolicies() {
               />
               <p className="text-xs text-muted-foreground">Tags matching this pattern will never be deleted.</p>
             </div>
+            {formType === RegistryType.Docker && (
+              <div className="border-t pt-4 space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Docker only</p>
+
+                <div className="space-y-2">
+                  <Label htmlFor="notPulledForDays">Delete tags not pulled for (days)</Label>
+                  <Input
+                    id="notPulledForDays"
+                    type="number"
+                    min={1}
+                    value={formNotPulledForDays}
+                    disabled={!isPullCriterionAvailable}
+                    onChange={(e) => setFormNotPulledForDays(e.target.value)}
+                    placeholder="e.g. 90"
+                  />
+                  {isPullCriterionAvailable ? (
+                    <div className="space-y-0.5 text-xs text-muted-foreground">
+                      <p>Needs a registry agent — it is what counts pulls.</p>
+                      <p>Applies to: {withAgent.map((c) => c.name).join(', ')}.</p>
+                      {withoutAgent.length > 0 && (
+                        <p>
+                          Not available on: {withoutAgent.map((c) => c.name).join(', ')} — those
+                          repositories are skipped.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No Docker registry has an agent yet. Set one up to delete tags by pull
+                      activity.{' '}
+                      <Link
+                        to="/settings/registries"
+                        className="rounded text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        Set up an agent
+                      </Link>
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Switch
+                    id="runGcAfter"
+                    checked={formRunGcAfter}
+                    disabled={!isPullCriterionAvailable}
+                    onCheckedChange={setFormRunGcAfter}
+                  />
+                  <div className="space-y-0.5">
+                    <Label htmlFor="runGcAfter">Run garbage collection afterwards</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Retention deletes tags; garbage collection is what frees the disk.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center gap-3">
               <Switch id="policyEnabled" checked={formEnabled} onCheckedChange={setFormEnabled} />
               <Label htmlFor="policyEnabled">Enable policy immediately</Label>
@@ -290,7 +380,12 @@ export default function RetentionPolicies() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
             <Button
               onClick={handleSubmit}
-              disabled={!formName || (!formKeepLastN && !formOlderThanDays) || createMutation.isPending || updateMutation.isPending}
+              disabled={
+                !formName ||
+                (!formKeepLastN && !formOlderThanDays && !formNotPulledForDays) ||
+                createMutation.isPending ||
+                updateMutation.isPending
+              }
             >
               {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 'Save'}
             </Button>

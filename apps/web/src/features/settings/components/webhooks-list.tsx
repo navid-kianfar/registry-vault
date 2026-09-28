@@ -30,6 +30,7 @@ import {
   useCreateWebhook,
   useUpdateWebhook,
   useDeleteWebhook,
+  isForbidden,
 } from '@/services/queries/settings.queries';
 import type { IWebhook } from '@registry-vault/shared';
 
@@ -56,7 +57,7 @@ function getStatusCodeVariant(code: number): 'default' | 'destructive' | 'second
 }
 
 export default function WebhooksList() {
-  const { data: webhooks, isLoading } = useWebhooks();
+  const { data: webhooks, isLoading, error } = useWebhooks();
   const createMutation = useCreateWebhook();
   const updateMutation = useUpdateWebhook();
   const deleteMutation = useDeleteWebhook();
@@ -125,6 +126,20 @@ export default function WebhooksList() {
   function handleDelete() {
     if (!deleting) return;
     deleteMutation.mutate(deleting.id, { onSuccess: () => setDeleteDialogOpen(false) });
+  }
+
+  if (isForbidden(error)) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-semibold">Webhooks</CardTitle>
+          <CardDescription>
+            Webhooks are managed by administrators. Ask one if you need an event delivered
+            somewhere.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
   }
 
   if (isLoading) {

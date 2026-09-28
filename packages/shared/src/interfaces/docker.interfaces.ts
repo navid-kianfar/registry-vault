@@ -8,6 +8,7 @@ export interface IDockerRepository extends IEntity {
   totalPulls: number;
   totalSize: number;
   lastPushedAt: string;
+  lastPulledAt?: string;
   isPublic: boolean;
   registryConnectionId?: string;
 }
@@ -24,6 +25,8 @@ export interface IDockerTag {
   platforms: IDockerPlatform[];
   pushedAt: string;
   lastPulledAt?: string;
+  /** Pulls counted by the registry agent; 0 without one. */
+  pullCount: number;
   vulnerabilitySummary: IVulnerabilitySummary;
 }
 
@@ -46,7 +49,11 @@ export interface IVulnerabilitySummary {
   medium: number;
   low: number;
   none: number;
+  /** Findings Trivy could not rate. */
+  unknown?: number;
   lastScannedAt?: string;
+  /** Latest scan state, when a scan was requested through the agent. */
+  scanState?: 'queued' | 'running' | 'succeeded' | 'failed';
 }
 
 export interface IVulnerability {

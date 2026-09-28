@@ -107,8 +107,11 @@ export default function UserDetailPage() {
 
   function handleChangePassword() {
     if (newPassword !== confirmPassword) return;
+    // Changing your own password requires proving you know the current one;
+    // only an admin resetting someone else's may omit it.
+    if (!isAdminReset && !currentPassword) return;
     changePasswordMutation.mutate(
-      { id: userId!, request: { currentPassword: currentPassword || undefined, newPassword } },
+      { id: userId!, request: { currentPassword: isAdminReset ? undefined : currentPassword, newPassword } },
       { onSuccess: () => setPasswordOpen(false) },
     );
   }
@@ -340,7 +343,8 @@ export default function UserDetailPage() {
             {!isAdminReset && (
               <div className="space-y-2">
                 <Label htmlFor="currentPwd">Current Password</Label>
-                <Input id="currentPwd" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••••" />
+                <Input id="currentPwd" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
+                <p className="text-xs text-muted-foreground">Required — it confirms the change is yours.</p>
               </div>
             )}
             <div className="space-y-2">
@@ -359,7 +363,12 @@ export default function UserDetailPage() {
             <Button variant="outline" onClick={() => setPasswordOpen(false)}>Cancel</Button>
             <Button
               onClick={handleChangePassword}
-              disabled={!newPassword || newPassword !== confirmPassword || changePasswordMutation.isPending}
+              disabled={
+                !newPassword ||
+                newPassword !== confirmPassword ||
+                (!isAdminReset && !currentPassword) ||
+                changePasswordMutation.isPending
+              }
             >
               {changePasswordMutation.isPending ? 'Changing...' : 'Change Password'}
             </Button>

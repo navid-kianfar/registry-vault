@@ -31,6 +31,11 @@ export class AuthService {
       return null;
     }
 
+    // A deactivated account keeps its password but must not get a token.
+    if (!user.isActive) {
+      return null;
+    }
+
     return user;
   }
 

@@ -31,6 +31,10 @@ export class DockerRepositoryEntity {
   @Column({ nullable: true })
   lastPushedAt?: string;
 
+  /** Most recent pull seen in the registry agent's event log. */
+  @Column({ nullable: true })
+  lastPulledAt?: string;
+
   @Column({ default: false })
   isPublic!: boolean;
 

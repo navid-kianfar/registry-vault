@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '../http-api-client';
+import { apiClient, ApiError } from '../http-api-client';
 import { queryKeys } from './query-keys';
 import type {
   IGeneralSettings,
@@ -196,7 +196,12 @@ export function useRunRetentionPolicy() {
       const policy = queryClient
         .getQueryData<{ data: IRetentionPolicy[] }>(queryKeys.settings.retention)
         ?.data.find((p) => p.id === id);
-      reportCleanup(policy?.registryType ?? RegistryType.Docker, response.data.deleted, response.data.failures);
+      reportCleanup(
+        policy?.registryType ?? RegistryType.Docker,
+        response.data.deleted,
+        response.data.failures,
+        response.data.skippedRepositories,
+      );
     },
     onError: (error: Error) => toast.error(error.message || 'Cleanup failed'),
   });
@@ -207,7 +212,15 @@ export function useWebhooks() {
     queryKey: queryKeys.settings.webhooks,
     queryFn: () => apiClient.getWebhooks(),
     select: (response) => response.data,
+    // Reading webhooks is administrator-only. A 403 is a permission, not a
+    // fault, so it must not be retried or reported as a failure.
+    retry: (failureCount, error) => !isForbidden(error) && failureCount < 2,
   });
+}
+
+/** True for the API's "you may not do this" answer. */
+export function isForbidden(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
 }
 
 export function useCreateWebhook() {

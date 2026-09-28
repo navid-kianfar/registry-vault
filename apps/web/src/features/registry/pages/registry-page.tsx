@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Container, Tag, Download, HardDrive, Clock, ChevronRight, Package, Box, User, ListChecks } from 'lucide-react';
-import type { IDockerRepository, INuGetPackage, INpmPackage } from '@registry-vault/shared';
+import type { IDockerRepository, INuGetPackage, INpmPackage, IRegistryConnection } from '@registry-vault/shared';
 import { RegistryType, DEFAULT_PAGE_SIZE } from '@registry-vault/shared';
 import { useRegistryConnection } from '@/hooks/use-registry-connection';
 import { useDockerRepositories } from '@/services/queries/docker.queries';
@@ -19,7 +19,12 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { ADMIN_ONLY_REASON, GatedControl } from '@/components/shared/gated-control';
+import { useIsAdmin } from '@/hooks/use-is-admin';
 import { formatBytes, formatNumber, formatRelativeTime } from '@/lib/formatters';
+import { RegistryTabs } from '../components/registry-tabs';
+import { AgentPageNotices } from '../components/agent-page-notices';
 
 // Docker list sub-component
 function DockerList({ connectionId, connectionName }: { connectionId: string; connectionName: string }) {
@@ -37,6 +42,7 @@ function DockerList({ connectionId, connectionName }: { connectionId: string; co
   const allIds = useMemo(() => data?.items.map((r) => r.id) ?? [], [data?.items]);
   const selection = useSelection(allIds);
   const bulkDelete = useBulkDelete();
+  const isAdmin = useIsAdmin();
   const selectedItems = useMemo(
     () => (data?.items ?? []).filter((r) => selection.selected.has(r.id)).map((r) => ({ id: r.id, name: r.name })),
     [data?.items, selection.selected],
@@ -58,9 +64,12 @@ function DockerList({ connectionId, connectionName }: { connectionId: string; co
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search repositories..." value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} className="pl-8" />
         </div>
-        <Button variant={selectionMode ? 'secondary' : 'outline'} size="sm" onClick={() => { if (selectionMode) { setSelectionMode(false); selection.clear(); } else setSelectionMode(true); }} className="gap-1.5 shrink-0">
-          <ListChecks className="h-4 w-4" />{selectionMode ? 'Cancel' : 'Select'}
-        </Button>
+        {/* Selection here deletes whole repositories/packages: administrator-only. */}
+        <GatedControl disabled={!isAdmin} reason={ADMIN_ONLY_REASON}>
+          <Button variant={selectionMode ? 'secondary' : 'outline'} size="sm" disabled={!isAdmin} onClick={() => { if (selectionMode) { setSelectionMode(false); selection.clear(); } else setSelectionMode(true); }} className="gap-1.5 shrink-0">
+            <ListChecks className="h-4 w-4" />{selectionMode ? 'Cancel' : 'Select'}
+          </Button>
+        </GatedControl>
       </div>
 
       {selectionMode && allIds.length > 0 && (
@@ -137,6 +146,7 @@ function NuGetList({ connectionId, connectionName }: { connectionId: string; con
   const allIds = useMemo(() => data?.items.map((p) => p.id) ?? [], [data?.items]);
   const selection = useSelection(allIds);
   const bulkDelete = useBulkDelete();
+  const isAdmin = useIsAdmin();
   const bulkCleanup = useBulkCleanup();
   const selectedItems = useMemo(
     () => (data?.items ?? []).filter((p) => selection.selected.has(p.id)).map((p) => ({ id: p.id, name: p.packageId })),
@@ -161,9 +171,12 @@ function NuGetList({ connectionId, connectionName }: { connectionId: string; con
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search packages..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="pl-8" />
         </div>
-        <Button variant={selectionMode ? 'secondary' : 'outline'} size="sm" onClick={() => { if (selectionMode) { setSelectionMode(false); selection.clear(); } else setSelectionMode(true); }} className="gap-1.5 shrink-0">
-          <ListChecks className="h-4 w-4" />{selectionMode ? 'Cancel' : 'Select'}
-        </Button>
+        {/* Selection here deletes whole repositories/packages: administrator-only. */}
+        <GatedControl disabled={!isAdmin} reason={ADMIN_ONLY_REASON}>
+          <Button variant={selectionMode ? 'secondary' : 'outline'} size="sm" disabled={!isAdmin} onClick={() => { if (selectionMode) { setSelectionMode(false); selection.clear(); } else setSelectionMode(true); }} className="gap-1.5 shrink-0">
+            <ListChecks className="h-4 w-4" />{selectionMode ? 'Cancel' : 'Select'}
+          </Button>
+        </GatedControl>
       </div>
 
       {selectionMode && allIds.length > 0 && (
@@ -253,6 +266,7 @@ function NpmList({ connectionId, connectionName }: { connectionId: string; conne
   const allIds = useMemo(() => data?.items.map((p) => p.id) ?? [], [data?.items]);
   const selection = useSelection(allIds);
   const bulkDelete = useBulkDelete();
+  const isAdmin = useIsAdmin();
   const bulkCleanup = useBulkCleanup();
   const selectedItems = useMemo(
     () => (data?.items ?? []).filter((p) => selection.selected.has(p.id)).map((p) => ({ id: p.id, name: p.name })),
@@ -277,9 +291,12 @@ function NpmList({ connectionId, connectionName }: { connectionId: string; conne
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Search packages..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="pl-8" />
         </div>
-        <Button variant={selectionMode ? 'secondary' : 'outline'} size="sm" onClick={() => { if (selectionMode) { setSelectionMode(false); selection.clear(); } else setSelectionMode(true); }} className="gap-1.5 shrink-0">
-          <ListChecks className="h-4 w-4" />{selectionMode ? 'Cancel' : 'Select'}
-        </Button>
+        {/* Selection here deletes whole repositories/packages: administrator-only. */}
+        <GatedControl disabled={!isAdmin} reason={ADMIN_ONLY_REASON}>
+          <Button variant={selectionMode ? 'secondary' : 'outline'} size="sm" disabled={!isAdmin} onClick={() => { if (selectionMode) { setSelectionMode(false); selection.clear(); } else setSelectionMode(true); }} className="gap-1.5 shrink-0">
+            <ListChecks className="h-4 w-4" />{selectionMode ? 'Cancel' : 'Select'}
+          </Button>
+        </GatedControl>
       </div>
 
       {selectionMode && allIds.length > 0 && (
@@ -350,6 +367,19 @@ function NpmList({ connectionId, connectionName }: { connectionId: string; conne
   );
 }
 
+function RegistryList({ connectionId, connection }: { connectionId: string; connection: IRegistryConnection }) {
+  switch (connection.registryType) {
+    case RegistryType.Docker:
+      return <DockerList connectionId={connectionId} connectionName={connection.name} />;
+    case RegistryType.NuGet:
+      return <NuGetList connectionId={connectionId} connectionName={connection.name} />;
+    case RegistryType.NPM:
+      return <NpmList connectionId={connectionId} connectionName={connection.name} />;
+    default:
+      return <div>Unknown registry type</div>;
+  }
+}
+
 // Main registry page
 export default function RegistryPage() {
   const { connectionId, connection } = useRegistryConnection();
@@ -362,14 +392,15 @@ export default function RegistryPage() {
     );
   }
 
-  switch (connection.registryType) {
-    case RegistryType.Docker:
-      return <DockerList connectionId={connectionId!} connectionName={connection.name} />;
-    case RegistryType.NuGet:
-      return <NuGetList connectionId={connectionId!} connectionName={connection.name} />;
-    case RegistryType.NPM:
-      return <NpmList connectionId={connectionId!} connectionName={connection.name} />;
-    default:
-      return <div>Unknown registry type</div>;
-  }
+  const hasAgent = connection.registryType === RegistryType.Docker && !!connection.agent;
+
+  return (
+    <TooltipProvider>
+      <div className="space-y-6">
+        <RegistryTabs connectionId={connectionId!} connection={connection} />
+        <AgentPageNotices connectionId={connectionId} enabled={hasAgent} />
+        <RegistryList connectionId={connectionId!} connection={connection} />
+      </div>
+    </TooltipProvider>
+  );
 }

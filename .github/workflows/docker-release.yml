@@ -7,6 +7,8 @@ on:
 
 env:
   IMAGE: kianfar/registry-vault
+  REGISTRY_AGENT_IMAGE: kianfar/registry-vault-registry
+  AIO_IMAGE: kianfar/registry-vault-aio
 
 jobs:
   build:
@@ -113,3 +115,186 @@ jobs:
 
       - name: Inspect image
         run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # kianfar/registry-vault-registry and kianfar/registry-vault-aio.
+  #
+  # One `docker buildx bake` call per platform builds both: the all-in-one takes
+  # the registry image's runtime stage as a named build context (docker-bake.hcl
+  # explains why), and bake is what links the two targets together. Building
+  # them in one call also means the shared work happens once.
+  #
+  # The two jobs above are untouched — kianfar/registry-vault is still built by
+  # docker/build-push-action from the root Dockerfile, with its own gha cache.
+  #
+  # Digest artifacts here are deliberately NOT named digests-*: the merge job
+  # above downloads that pattern with merge-multiple, and a stray digest would
+  # end up in the wrong manifest list.
+  # ────────────────────────────────────────────────────────────────────────────
+  build-registry-images:
+    name: Build registry images (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Prepare platform pair
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # metadata-action can write a bake file of its own; `bake-target` says
+      # which target in docker-bake.hcl its labels belong to.
+      - name: Extract metadata (labels) for the registry image
+        id: meta-registry
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_AGENT_IMAGE }}
+          bake-target: registry
+
+      - name: Extract metadata (labels) for the all-in-one image
+        id: meta-aio
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.AIO_IMAGE }}
+          bake-target: aio
+
+      # Tags are cleared: this pushes by digest, and the manifest lists are
+      # tagged in the merge job below.
+      #
+      # No type=gha cache on these two: that backend needs the Actions runtime
+      # token, which docker/build-push-action injects into its own process and
+      # a plain `run` step does not have. Adding it means either
+      # docker/bake-action or exporting the token — a deliberate follow-up, not
+      # something to guess at.
+      - name: Build and push by digest
+        run: |
+          docker buildx bake \
+            -f docker-bake.hcl \
+            -f "${{ steps.meta-registry.outputs.bake-file }}" \
+            -f "${{ steps.meta-aio.outputs.bake-file }}" \
+            --set "*.platform=${{ matrix.platform }}" \
+            --set "registry.tags=" \
+            --set "aio.tags=" \
+            --set "registry.output=type=image,name=${{ env.REGISTRY_AGENT_IMAGE }},push-by-digest=true,name-canonical=true,push=true" \
+            --set "aio.output=type=image,name=${{ env.AIO_IMAGE }},push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file "${{ runner.temp }}/bake-metadata.json" \
+            registry aio
+
+      - name: Export digests
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/digests/registry" "${{ runner.temp }}/digests/aio"
+          for target in registry aio; do
+            digest="$(jq -r --arg t "$target" '.[$t]["containerimage.digest"] // empty' \
+              "${{ runner.temp }}/bake-metadata.json")"
+            if [ -z "$digest" ]; then
+              echo "no digest for target $target" >&2
+              exit 1
+            fi
+            touch "${{ runner.temp }}/digests/$target/${digest#sha256:}"
+          done
+
+      - name: Upload registry image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: registry-digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/registry/*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload all-in-one image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: aio-digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/aio/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-registry-images:
+    name: Merge and Push Manifest Lists (registry, all-in-one)
+    runs-on: ubuntu-latest
+    needs: build-registry-images
+    steps:
+      - name: Download registry image digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests/registry
+          pattern: registry-digests-*
+          merge-multiple: true
+
+      - name: Download all-in-one image digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests/aio
+          pattern: aio-digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # The same tag scheme as kianfar/registry-vault, including the explicit
+      # :latest guard that keeps pre-release tags (v1.2.0-rc1) off :latest.
+      - name: Extract metadata (tags) for the registry image
+        id: meta-registry
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY_AGENT_IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Extract metadata (tags) for the all-in-one image
+        id: meta-aio
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.AIO_IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Create manifest list and push (registry image)
+        working-directory: ${{ runner.temp }}/digests/registry
+        env:
+          META_JSON: ${{ steps.meta-registry.outputs.json }}
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$META_JSON") \
+            $(printf '${{ env.REGISTRY_AGENT_IMAGE }}@sha256:%s ' *)
+
+      - name: Create manifest list and push (all-in-one image)
+        working-directory: ${{ runner.temp }}/digests/aio
+        env:
+          META_JSON: ${{ steps.meta-aio.outputs.json }}
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$META_JSON") \
+            $(printf '${{ env.AIO_IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect images
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY_AGENT_IMAGE }}:${{ steps.meta-registry.outputs.version }}
+          docker buildx imagetools inspect ${{ env.AIO_IMAGE }}:${{ steps.meta-aio.outputs.version }}

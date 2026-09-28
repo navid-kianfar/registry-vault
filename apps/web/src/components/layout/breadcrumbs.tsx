@@ -22,6 +22,7 @@ const staticLabels: Record<string, string> = {
   storage: 'Storage',
   retention: 'Retention',
   webhooks: 'Webhooks',
+  maintenance: 'Maintenance',
   tags: 'Tags',
   versions: 'Versions',
 };
@@ -54,6 +55,8 @@ export function Breadcrumbs() {
   if (location.pathname === '/') return null;
 
   function resolveLabel(segment: string, index: number): string {
+    // Inside a registry these are docker login accounts, not Vault users.
+    if (segment === 'users' && segments[0] === 'registry') return 'Registry users';
     if (staticLabels[segment]) return staticLabels[segment];
 
     const prev = segments[index - 1];

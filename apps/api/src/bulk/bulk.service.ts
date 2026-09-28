@@ -11,6 +11,7 @@ import type {
   IRetentionRunResult,
 } from '@registry-vault/shared';
 import { RegistryType, CredentialAuthType } from '@registry-vault/shared';
+import { AgentClientService } from '../agent/agent-client.service';
 import { DockerRepositoryEntity } from '../docker/entities/docker-repository.entity';
 import { DockerTagEntity } from '../docker/entities/docker-tag.entity';
 import { DockerImageDetailEntity } from '../docker/entities/docker-image-detail.entity';
@@ -24,6 +25,13 @@ import { CredentialCryptoService } from '../common/crypto/credential-crypto.serv
 import { DockerRegistryConnector } from '../registry-sync/connectors/docker-registry.connector';
 import { NpmRegistryConnector } from '../registry-sync/connectors/npm-registry.connector';
 import { NuGetRegistryConnector } from '../registry-sync/connectors/nuget-registry.connector';
+
+/**
+ * How long Vault may go without reaching an agent before its pull counts stop
+ * being a safe basis for deletion. The poller runs every ten seconds, so this
+ * is many missed cycles, not a tight race.
+ */
+const MAX_PULL_DATA_STALENESS_MS = 15 * 60 * 1000;
 
 @Injectable()
 export class BulkService {
@@ -52,6 +60,7 @@ export class BulkService {
     private readonly npmConnector: NpmRegistryConnector,
     private readonly nugetConnector: NuGetRegistryConnector,
     private readonly credentialCrypto: CredentialCryptoService,
+    private readonly agentClient: AgentClientService,
   ) {}
 
   // Resolve auth parameters from a credential entity
@@ -60,12 +69,16 @@ export class BulkService {
     const isBasic = cred.authType === CredentialAuthType.BasicAuth;
     const isBearer = cred.authType === CredentialAuthType.BearerToken;
     const isApiKey = cred.authType === CredentialAuthType.ApiKey;
+    // A cleared secret is NULL in the database; the connectors take undefined.
+    const username = cred.username ?? undefined;
+    const secret = cred.encryptedPassword ?? undefined;
+
     return {
-      username: isBasic ? cred.username : undefined,
-      password: isBasic ? cred.encryptedPassword : undefined,
-      token: isBearer ? cred.encryptedPassword : undefined,
-      apiKey: (isApiKey || isBearer) ? cred.encryptedPassword : (isBasic ? cred.username : undefined),
-      apiKeyHeader: isBearer ? 'Authorization' : cred.headerName,
+      username: isBasic ? username : undefined,
+      password: isBasic ? secret : undefined,
+      token: isBearer ? secret : undefined,
+      apiKey: (isApiKey || isBearer) ? secret : (isBasic ? username : undefined),
+      apiKeyHeader: isBearer ? 'Authorization' : cred.headerName ?? undefined,
     };
   }
 
@@ -304,6 +317,11 @@ export class BulkService {
                     `${outcome.deleted}/${outcome.requested} tags deleted, ${outcome.failures.length} failed — ${detail}`,
                   );
                 }
+
+                // The registry keeps an empty repository in its catalog until
+                // garbage collection; the agent removes the directory now so
+                // the repository actually disappears.
+                await this.removeRepositoryOnAgent(connection, repo.name);
               }
               await this.dockerTagRepository.delete({ repositoryId: repo.id });
               await this.dockerImageDetailRepository.delete({ repositoryId: repo.id });
@@ -455,12 +473,15 @@ export class BulkService {
   async cleanupVersions(
     request: ICleanupVersionsRequest,
     excludePatterns?: string,
-  ): Promise<IBulkDeleteResult> {
+  ): Promise<IBulkDeleteResult & { skipped?: boolean }> {
     try {
-      const { toDelete, toKeep } = await this.selectCleanupTargets(request, excludePatterns);
+      const { toDelete, toKeep, skipped } = await this.selectCleanupTargets(
+        request,
+        excludePatterns,
+      );
 
       if (toDelete.length === 0) {
-        return { totalRequested: 0, successCount: 0, failureCount: 0, failures: [] };
+        return { totalRequested: 0, successCount: 0, failureCount: 0, failures: [], skipped };
       }
 
       return await this.bulkDelete({
@@ -491,24 +512,49 @@ export class BulkService {
     keepLastN?: number | null;
     olderThanDays?: number | null;
     tagPatternExclude?: string | null;
+    notPulledForDays?: number | null;
+    runGcAfter?: boolean | null;
   }): Promise<IRetentionRunResult> {
-    if (!policy.keepLastN && !policy.olderThanDays) {
+    const notPulledForDays = policy.notPulledForDays ?? undefined;
+    const isDocker = policy.registryType === RegistryType.Docker;
+
+    if (!policy.keepLastN && !policy.olderThanDays && !notPulledForDays) {
       throw new BadRequestException(
-        'This policy sets neither "keep last N" nor "older than"; refusing to delete every version',
+        'This policy sets none of "keep last N", "older than" or "not pulled for"; refusing to delete every version',
       );
+    }
+
+    if (!policy.keepLastN && !policy.olderThanDays && notPulledForDays) {
+      // "Not pulled for N days" is only knowable through an agent's event log.
+      // Without one it selects nothing, and as the sole criterion that would
+      // make the policy silently do nothing — say so instead.
+      await this.requireAnyAgent(policy.registryType);
     }
 
     const olderThanDate = policy.olderThanDays
       ? new Date(Date.now() - policy.olderThanDays * 24 * 60 * 60 * 1000).toISOString()
       : undefined;
 
-    const packageIds = policy.registryType === RegistryType.Docker
-      ? (await this.dockerRepoRepository.find({ select: { id: true } })).map((r) => r.id)
+    const dockerRepos = isDocker
+      ? await this.dockerRepoRepository.find({
+          select: { id: true, name: true, registryConnectionId: true },
+        })
+      : [];
+
+    const packageIds = isDocker
+      ? dockerRepos.map((r) => r.id)
       : policy.registryType === RegistryType.NPM
         ? (await this.npmPackageRepository.find({ select: { id: true } })).map((p) => p.id)
         : (await this.nugetPackageRepository.find({ select: { id: true } })).map((p) => p.id);
 
+    const connectionByRepoId = new Map(
+      dockerRepos.map((repo) => [repo.id, repo.registryConnectionId]),
+    );
+    const nameByRepoId = new Map(dockerRepos.map((repo) => [repo.id, repo.name]));
+    const affectedConnectionIds = new Set<string>();
+
     const result: IRetentionRunResult = { deleted: 0, failed: 0, failures: [] };
+    const skippedRepositories: string[] = [];
 
     for (const packageIdentifier of packageIds) {
       const outcome = await this.cleanupVersions(
@@ -517,15 +563,112 @@ export class BulkService {
           packageIdentifier,
           keepCount: policy.keepLastN ?? undefined,
           olderThanDate,
+          notPulledForDays,
         },
         policy.tagPatternExclude ?? undefined,
       );
       result.deleted += outcome.successCount;
       result.failed += outcome.failureCount;
       result.failures.push(...outcome.failures);
+
+      if (outcome.skipped) {
+        skippedRepositories.push(nameByRepoId.get(packageIdentifier) ?? packageIdentifier);
+      }
+
+      const connectionId = connectionByRepoId.get(packageIdentifier);
+      if (outcome.successCount > 0 && connectionId) {
+        affectedConnectionIds.add(connectionId);
+      }
+    }
+
+    if (skippedRepositories.length > 0) {
+      result.skippedRepositories = skippedRepositories;
+      this.logger.warn(
+        `Retention skipped ${skippedRepositories.length} repositor${skippedRepositories.length === 1 ? 'y' : 'ies'}: the policy selects by pulls and their registry has no agent`,
+      );
+    }
+
+    if (result.deleted > 0 && affectedConnectionIds.size > 0) {
+      await this.collectGarbageAfterRetention(
+        affectedConnectionIds,
+        policy.runGcAfter === true,
+        result,
+      );
     }
 
     return result;
+  }
+
+  /**
+   * Garbage-collect the registries this run deleted from, so the space is
+   * actually returned. The policy can ask for it, or a connection can have it
+   * on by default; a GC that will not start is reported in the run's failures
+   * rather than thrown, because the deletes already happened.
+   */
+  private async collectGarbageAfterRetention(
+    connectionIds: ReadonlySet<string>,
+    policyWantsGc: boolean,
+    result: IRetentionRunResult,
+  ): Promise<void> {
+    const connections = await this.connectionRepository.find({
+      where: { id: In([...connectionIds]) },
+    });
+
+    for (const connection of connections) {
+      if (!this.agentClient.hasAgent(connection)) continue;
+      if (!policyWantsGc && !connection.gcAfterRetention) continue;
+
+      try {
+        const job = await this.agentClient.startGc(connection, false);
+        this.logger.log(
+          `Retention run started garbage collection on ${connection.name} (job ${job.id})`,
+        );
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(
+          `Garbage collection after retention failed on ${connection.name}: ${reason}`,
+        );
+        result.failed += 1;
+        result.failures.push({
+          packageIdentifier: connection.name,
+          reason: `Garbage collection after retention failed: ${reason}`,
+        });
+      }
+    }
+  }
+
+  /** Refuse a pull-based policy when no registry of this type has an agent. */
+  private async requireAnyAgent(registryType: RegistryType): Promise<void> {
+    const connections = await this.connectionRepository.find({ where: { registryType } });
+    const withAgent = connections.filter((connection) => this.agentClient.hasAgent(connection));
+
+    if (withAgent.length === 0) {
+      throw new BadRequestException(
+        'This policy only deletes tags that have not been pulled, which needs a registry agent — none of the configured registries has one',
+      );
+    }
+  }
+
+  /**
+   * Ask the agent to remove a repository's directory once its tags are gone, so
+   * the registry stops listing it. A failure here is logged, not raised: the
+   * content is already deleted and the next garbage collection removes the
+   * directory anyway.
+   */
+  private async removeRepositoryOnAgent(
+    connection: RegistryConnectionEntity,
+    repositoryName: string,
+  ): Promise<void> {
+    if (!this.agentClient.hasAgent(connection)) return;
+
+    try {
+      await this.agentClient.removeRepository(connection, repositoryName, true);
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(
+        `Agent on ${connection.name} could not remove repository "${repositoryName}": ${reason}`,
+      );
+    }
   }
 
   /**
@@ -539,22 +682,31 @@ export class BulkService {
   private async selectCleanupTargets(
     request: ICleanupVersionsRequest,
     excludePatterns?: string,
-  ): Promise<{ toDelete: string[]; toKeep: string[] }> {
+  ): Promise<{ toDelete: string[]; toKeep: string[]; skipped?: boolean }> {
     const hasKeepCount = request.keepCount !== undefined && request.keepCount > 0;
-    if (!hasKeepCount && !request.olderThanDate) {
+    const hasNotPulledFor = request.notPulledForDays !== undefined && request.notPulledForDays > 0;
+    if (!hasKeepCount && !request.olderThanDate && !hasNotPulledFor) {
       return { toDelete: [], toKeep: [] };
     }
 
     const isExcluded = compileTagPatterns(excludePatterns);
 
-    const split = <T>(items: T[], name: (item: T) => string, date: (item: T) => string) => {
+    const split = <T>(
+      items: T[],
+      name: (item: T) => string,
+      date: (item: T) => string,
+      alsoQualifies?: (item: T) => boolean,
+    ) => {
       const candidates = items.filter((item) => !isExcluded(name(item)));
-      const toDelete = this.selectVersionsForCleanup(
+      const selected = this.selectVersionsForCleanup(
         candidates,
         request.keepCount,
         request.olderThanDate,
         date,
       );
+      // Every criterion has to agree before a version goes, so adding
+      // "not pulled for N days" can only ever delete less, never more.
+      const toDelete = alsoQualifies ? selected.filter(alsoQualifies) : selected;
       const deleted = new Set(toDelete.map(name));
       return {
         toDelete: toDelete.map(name),
@@ -568,7 +720,24 @@ export class BulkService {
           where: { repositoryId: request.packageIdentifier },
           order: { pushedAt: 'DESC' },
         });
-        return split(tags, (t) => t.name, (t) => t.pushedAt);
+
+        if (!hasNotPulledFor) {
+          return split(tags, (t) => t.name, (t) => t.pushedAt);
+        }
+
+        const notPulled = await this.buildNotPulledPredicate(
+          request.packageIdentifier,
+          request.notPulledForDays as number,
+        );
+
+        // No agent means no pull history. Ignoring the criterion would widen
+        // the deletion to every tag the other rules pick, so the repository is
+        // skipped outright instead.
+        if (!notPulled) {
+          return { toDelete: [], toKeep: tags.map((t) => t.name), skipped: true };
+        }
+
+        return split(tags, (t) => t.name, (t) => t.pushedAt, notPulled);
       }
 
       case RegistryType.NPM: {
@@ -590,6 +759,72 @@ export class BulkService {
       default:
         return { toDelete: [], toKeep: [] };
     }
+  }
+
+  /**
+   * "Nobody pulled this tag for N days", as far as Vault can honestly tell.
+   *
+   * Returns undefined when the pull history cannot be trusted, and the caller
+   * skips the repository rather than judging it on data it does not have:
+   *
+   *  - no agent at all, so there is no event feed;
+   *  - the agent is not `online` right now, or Vault has not reached it for
+   *    longer than {@link MAX_PULL_DATA_STALENESS_MS}. "Nobody pulled it" and
+   *    "nobody could tell us" look identical in the database, and only one of
+   *    them is a reason to delete.
+   *
+   * A gap in the event log is handled differently, by
+   * `eventsIncompleteSince` joining the floor below rather than by skipping
+   * forever: the flag is sticky, so a single pruned page would otherwise
+   * disable pull-based retention on that registry for good. Taking the gap as
+   * the start of the observable window is the weaker, simpler and still
+   * correct statement — once N days have passed since the gap with the feed
+   * intact, "not pulled for N days" is a claim Vault can actually make.
+   *
+   * So a tag qualifies only when its last pull, its push, the moment tracking
+   * began and the moment the feed was last known to be incomplete are all
+   * older than the cut-off.
+   */
+  private async buildNotPulledPredicate(
+    repositoryId: string,
+    notPulledForDays: number,
+  ): Promise<((tag: DockerTagEntity) => boolean) | undefined> {
+    const repo = await this.dockerRepoRepository.findOne({ where: { id: repositoryId } });
+    const { connection } = await this.getConnectionAndCred(repo?.registryConnectionId);
+
+    if (!connection || !this.agentClient.hasAgent(connection)) {
+      return undefined;
+    }
+
+    if (connection.agentStatus !== 'online') {
+      this.logger.warn(
+        `Skipping ${repo?.name ?? repositoryId}: its agent is ${connection.agentStatus ?? 'unreachable'}, so pull data may be out of date`,
+      );
+      return undefined;
+    }
+
+    const lastSeen = timestampOf(connection.agentLastSeenAt);
+    if (Date.now() - lastSeen > MAX_PULL_DATA_STALENESS_MS) {
+      this.logger.warn(
+        `Skipping ${repo?.name ?? repositoryId}: Vault last reached its agent at ${connection.agentLastSeenAt ?? 'never'}, so pull data may be out of date`,
+      );
+      return undefined;
+    }
+
+    const cutoff = Date.now() - notPulledForDays * 24 * 60 * 60 * 1000;
+    const observableSince = Math.max(
+      timestampOf(connection.agentConfiguredAt),
+      timestampOf(connection.eventsIncompleteSince),
+    );
+
+    return (tag: DockerTagEntity) => {
+      const lastActivity = Math.max(
+        timestampOf(tag.lastPulledAt),
+        timestampOf(tag.pushedAt),
+        observableSince,
+      );
+      return lastActivity < cutoff;
+    };
   }
 
   private selectVersionsForCleanup<T>(
@@ -633,4 +868,11 @@ export function compileTagPatterns(patterns?: string): (name: string) => boolean
       `^${p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`,
     ));
   return (name) => regexes.some((re) => re.test(name));
+}
+
+/** Parse an ISO timestamp to epoch millis; an absent or unparsable value is the epoch. */
+function timestampOf(value?: string | null): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }

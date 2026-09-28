@@ -28,8 +28,6 @@ FROM --platform=$TARGETPLATFORM node:22-alpine AS production
 
 WORKDIR /app
 
-# Native modules (bcrypt, better-sqlite3) need build tools at install time
-RUN apk add --no-cache python3 make g++
 RUN npm install -g pnpm@11.5.1
 
 # Copy manifests for production-only install
@@ -38,7 +36,11 @@ COPY apps/api/package.json ./apps/api/
 COPY packages/shared/package.json ./packages/shared/
 
 # Install only the API's production dependencies
-RUN pnpm install --filter @registry-vault/api --prod --frozen-lockfile
+# Native modules (bcrypt, better-sqlite3) need build tools only while they
+# install; removing them in the same layer keeps ~280 MB out of the image.
+RUN apk add --no-cache --virtual .native-build python3 make g++ \
+ && pnpm install --filter @registry-vault/api --prod --frozen-lockfile \
+ && apk del .native-build
 
 # Copy built API
 COPY --from=builder /app/apps/api/dist ./apps/api/dist

@@ -1,3 +1,5 @@
+import type { AgentLogSource } from '@registry-vault/shared';
+
 export const queryKeys = {
   dashboard: {
     stats: ['dashboard', 'stats'] as const,
@@ -8,6 +10,23 @@ export const queryKeys = {
     repository: (id: string) => ['docker', 'repository', id] as const,
     tags: (repoId: string, params: Record<string, unknown>) => ['docker', 'tags', repoId, params] as const,
     imageDetail: (repoId: string, tag: string) => ['docker', 'imageDetail', repoId, tag] as const,
+    pulls: (repoId: string, days: number) => ['docker', 'pulls', repoId, days] as const,
+    scan: (repoId: string, tag: string) => ['docker', 'scan', repoId, tag] as const,
+  },
+  agent: {
+    /** Everything under ['agent', connectionId] is invalidated by Refresh. */
+    connection: (id: string) => ['agent', id] as const,
+    health: (id: string) => ['agent', id, 'health'] as const,
+    storage: (id: string, refresh: boolean) => ['agent', id, 'storage', refresh] as const,
+    gc: (id: string) => ['agent', id, 'gc'] as const,
+    gcHistory: (id: string) => ['agent', id, 'gc', 'history'] as const,
+    uploads: (id: string, hours: number) => ['agent', id, 'uploads', hours] as const,
+    maintenance: (id: string) => ['agent', id, 'maintenance'] as const,
+    logs: (id: string, source: AgentLogSource, lines: number) =>
+      ['agent', id, 'logs', source, lines] as const,
+    users: (id: string) => ['agent', id, 'users'] as const,
+    settings: (id: string) => ['agent', id, 'settings'] as const,
+    overview: ['agent', 'overview'] as const,
   },
   nuget: {
     packages: (params: Record<string, unknown>) => ['nuget', 'packages', params] as const,

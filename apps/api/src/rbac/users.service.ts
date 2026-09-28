@@ -1,8 +1,9 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, FindOptionsWhere } from 'typeorm';
+import { Repository, Like, Not, FindOptionsWhere } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-import type { IUser, ICreateUserRequest, IUpdateUserRequest, IChangePasswordRequest, PaginatedResponse } from '@registry-vault/shared';
+import type { IUser, ICreateUserRequest, IUpdateUserRequest, PaginatedResponse } from '@registry-vault/shared';
+import { Role } from '@registry-vault/shared/enums';
 import { UserEntity } from './entities/user.entity';
 
 @Injectable()
@@ -104,6 +105,12 @@ export class UsersService {
       throw new NotFoundException(`User with id "${id}" not found`);
     }
 
+    const isDemotion = request.role !== undefined && request.role !== Role.Admin;
+    const isDeactivation = request.isActive === false;
+    if (isDemotion || isDeactivation) {
+      await this.requireAnotherAdminRemains(entity, isDemotion ? 'demoted' : 'deactivated');
+    }
+
     if (request.email !== undefined) entity.email = request.email;
     if (request.displayName !== undefined) entity.displayName = request.displayName;
     if (request.role !== undefined) entity.role = request.role;
@@ -120,25 +127,78 @@ export class UsersService {
       throw new NotFoundException(`User with id "${id}" not found`);
     }
 
+    await this.requireAnotherAdminRemains(entity, 'deleted');
+
     await this.userRepository.remove(entity);
   }
 
-  async changePassword(id: string, request: IChangePasswordRequest): Promise<void> {
+  /** Change your own password, proving you know the current one. */
+  async changeOwnPassword(
+    id: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const entity = await this.findUserOrFail(id);
+
+    if (!currentPassword) {
+      throw new BadRequestException('The current password is required to change your own password');
+    }
+
+    const isValid = await bcrypt.compare(currentPassword, entity.passwordHash);
+    if (!isValid) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    await this.writePasswordHash(entity, newPassword);
+  }
+
+  /** Reset another user's password as an administrator, who cannot know the old one. */
+  async resetPassword(id: string, newPassword: string): Promise<void> {
+    const entity = await this.findUserOrFail(id);
+    await this.writePasswordHash(entity, newPassword);
+  }
+
+  private async findUserOrFail(id: string): Promise<UserEntity> {
     const entity = await this.userRepository.findOne({ where: { id } });
 
     if (!entity) {
       throw new NotFoundException(`User with id "${id}" not found`);
     }
 
-    if (request.currentPassword) {
-      const isValid = await bcrypt.compare(request.currentPassword, entity.passwordHash);
-      if (!isValid) {
-        throw new BadRequestException('Current password is incorrect');
-      }
+    return entity;
+  }
+
+  private async writePasswordHash(entity: UserEntity, newPassword: string): Promise<void> {
+    if (!newPassword) {
+      throw new BadRequestException('A new password is required');
     }
 
-    entity.passwordHash = await bcrypt.hash(request.newPassword, 10);
+    entity.passwordHash = await bcrypt.hash(newPassword, 10);
     await this.userRepository.save(entity);
+  }
+
+  /**
+   * Refuse to remove the last administrator who can still sign in.
+   *
+   * An instance with no active admin cannot be administered at all: nobody can
+   * create one, because creating users is itself admin-only. Recovering from
+   * that needs database surgery, so it is worth a 400.
+   */
+  private async requireAnotherAdminRemains(
+    entity: UserEntity,
+    change: string,
+  ): Promise<void> {
+    if (entity.role !== Role.Admin || !entity.isActive) return;
+
+    const otherAdmins = await this.userRepository.count({
+      where: { role: Role.Admin, isActive: true, id: Not(entity.id) },
+    });
+
+    if (otherAdmins === 0) {
+      throw new BadRequestException(
+        `"${entity.username}" is the last active administrator and cannot be ${change} — make another user an administrator first`,
+      );
+    }
   }
 
   private mapToUser(entity: UserEntity): IUser {

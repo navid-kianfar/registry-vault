@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, HttpCode } from '@nestjs/common';
+import { Role } from '@registry-vault/shared/enums';
 import type {
   IGeneralSettings,
   IRegistryConnection,
@@ -12,9 +13,12 @@ import type {
   IUpdateWebhookRequest,
   IRegistrySyncResult,
   IRetentionRunResult,
+  IAgentTestRequest,
+  IAgentInfo,
 } from '@registry-vault/shared';
 import { SettingsService } from './settings.service';
 import { RegistrySyncService } from '../registry-sync/registry-sync.service';
+import { Roles } from '../common/decorators/roles.decorator';
 
 @Controller('api/settings')
 export class SettingsController {
@@ -29,6 +33,7 @@ export class SettingsController {
   }
 
   @Patch('general')
+  @Roles(Role.Admin)
   async updateGeneralSettings(
     @Body() body: Partial<IGeneralSettings>,
   ): Promise<IGeneralSettings> {
@@ -41,6 +46,7 @@ export class SettingsController {
   }
 
   @Post('registries')
+  @Roles(Role.Admin)
   async createRegistryConnection(
     @Body() body: ICreateRegistryConnectionRequest,
   ): Promise<IRegistryConnection> {
@@ -48,6 +54,7 @@ export class SettingsController {
   }
 
   @Patch('registries/:id')
+  @Roles(Role.Admin)
   async updateRegistryConnection(
     @Param('id') id: string,
     @Body() body: IUpdateRegistryConnectionRequest,
@@ -56,18 +63,40 @@ export class SettingsController {
   }
 
   @Delete('registries/:id')
+  @Roles(Role.Admin)
   async deleteRegistryConnection(@Param('id') id: string): Promise<void> {
     return this.settingsService.deleteRegistryConnection(id);
   }
 
+  /** Probe an agent before its connection exists; both url and apiKey are required. */
+  @Post('registries/agent/test')
+  @HttpCode(200)
+  @Roles(Role.Admin)
+  async testUnsavedRegistryAgent(@Body() body: IAgentTestRequest): Promise<IAgentInfo> {
+    return this.settingsService.testUnsavedRegistryAgent(body ?? {});
+  }
+
+  /** Probe the agent of a saved connection, with its stored key unless one is given. */
+  @Post('registries/:id/agent/test')
+  @HttpCode(200)
+  @Roles(Role.Admin)
+  async testRegistryAgent(
+    @Param('id') id: string,
+    @Body() body: IAgentTestRequest,
+  ): Promise<IAgentInfo> {
+    return this.settingsService.testRegistryAgent(id, body ?? {});
+  }
+
   @Post('registries/:id/sync')
   @HttpCode(200)
+  @Roles(Role.Admin)
   async syncRegistryConnection(@Param('id') id: string): Promise<IRegistrySyncResult> {
     return this.registrySyncService.syncConnectionById(id);
   }
 
   @Post('sync')
   @HttpCode(200)
+  @Roles(Role.Admin)
   async syncAllRegistries(): Promise<IRegistrySyncResult> {
     return this.registrySyncService.syncAll();
   }
@@ -78,6 +107,7 @@ export class SettingsController {
   }
 
   @Post('retention')
+  @Roles(Role.Admin)
   async createRetentionPolicy(
     @Body() body: ICreateRetentionPolicyRequest,
   ): Promise<IRetentionPolicy> {
@@ -85,6 +115,7 @@ export class SettingsController {
   }
 
   @Patch('retention/:id')
+  @Roles(Role.Admin)
   async updateRetentionPolicy(
     @Param('id') id: string,
     @Body() body: IUpdateRetentionPolicyRequest,
@@ -93,26 +124,32 @@ export class SettingsController {
   }
 
   @Delete('retention/:id')
+  @Roles(Role.Admin)
   async deleteRetentionPolicy(@Param('id') id: string): Promise<void> {
     return this.settingsService.deleteRetentionPolicy(id);
   }
 
   @Post('retention/:id/run')
+  @Roles(Role.Admin)
   async runRetentionPolicy(@Param('id') id: string): Promise<IRetentionRunResult> {
     return this.settingsService.runRetentionPolicy(id);
   }
 
+  /** Admin-only: a webhook's signing secret is part of this payload. */
   @Get('webhooks')
+  @Roles(Role.Admin)
   async getWebhooks(): Promise<IWebhook[]> {
     return this.settingsService.getWebhooks();
   }
 
   @Post('webhooks')
+  @Roles(Role.Admin)
   async createWebhook(@Body() body: ICreateWebhookRequest): Promise<IWebhook> {
     return this.settingsService.createWebhook(body);
   }
 
   @Patch('webhooks/:id')
+  @Roles(Role.Admin)
   async updateWebhook(
     @Param('id') id: string,
     @Body() body: IUpdateWebhookRequest,
@@ -121,6 +158,7 @@ export class SettingsController {
   }
 
   @Delete('webhooks/:id')
+  @Roles(Role.Admin)
   async deleteWebhook(@Param('id') id: string): Promise<void> {
     return this.settingsService.deleteWebhook(id);
   }

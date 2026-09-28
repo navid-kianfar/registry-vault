@@ -26,6 +26,9 @@ export function useDockerRepository(repositoryId: string) {
   });
 }
 
+const SCANNING_POLL_MS = 10 * 1000;
+const ACTIVE_SCAN_STATES = new Set(['queued', 'running']);
+
 export function useDockerTags(repositoryId: string, params: PaginationParams) {
   return useQuery({
     queryKey: queryKeys.docker.tags(repositoryId, params),
@@ -33,7 +36,16 @@ export function useDockerTags(repositoryId: string, params: PaginationParams) {
     select: (response) => response.data,
     enabled: !!repositoryId,
     staleTime: FIVE_MINUTES,
-    refetchInterval: FIVE_MINUTES,
+    // A queued scan changes a badge on this list, so follow it closely while
+    // one is outstanding and fall back to the slow interval afterwards.
+    refetchInterval: (query) => {
+      const items = query.state.data?.data?.items ?? [];
+      const isScanning = items.some((tag) => {
+        const state = tag.vulnerabilitySummary.scanState;
+        return !!state && ACTIVE_SCAN_STATES.has(state);
+      });
+      return isScanning ? SCANNING_POLL_MS : FIVE_MINUTES;
+    },
   });
 }
 

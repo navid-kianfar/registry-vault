@@ -147,6 +147,7 @@ export class DockerService {
       totalPulls: Number(entity.totalPulls),
       totalSize: Number(entity.totalSize),
       lastPushedAt: entity.lastPushedAt ?? '',
+      lastPulledAt: entity.lastPulledAt,
       isPublic: entity.isPublic,
       registryConnectionId: entity.registryConnectionId,
       createdAt: entity.createdAt instanceof Date
@@ -179,6 +180,7 @@ export class DockerService {
       platforms: this.mapPlatforms(entity.platforms, entity),
       pushedAt: entity.pushedAt,
       lastPulledAt: entity.lastPulledAt,
+      pullCount: Number(entity.pullCount ?? 0),
       vulnerabilitySummary,
     };
   }

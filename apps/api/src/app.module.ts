@@ -18,8 +18,10 @@ import { SettingsModule } from './settings/settings.module';
 import { BulkModule } from './bulk/bulk.module';
 import { RegistrySyncModule } from './registry-sync/registry-sync.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { AgentModule } from './agent/agent.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { RolesGuard } from './common/guards/roles.guard';
 import { ApiResponseInterceptor } from './common/interceptors/api-response.interceptor';
 
 // SeedService is provided by DatabaseModule and runs via OnModuleInit
@@ -53,11 +55,18 @@ import { ApiResponseInterceptor } from './common/interceptors/api-response.inter
     BulkModule,
     RegistrySyncModule,
     DashboardModule,
+    AgentModule,
   ],
   providers: [
+    // Order matters: authentication first, then authorization — RolesGuard
+    // reads the user JwtAuthGuard put on the request.
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     {
       provide: APP_INTERCEPTOR,

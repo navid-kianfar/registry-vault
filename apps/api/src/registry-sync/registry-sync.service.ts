@@ -191,11 +191,11 @@ export class RegistrySyncService {
     const url = connection.url;
     // For Docker, BasicAuth maps to username+password for the token flow.
     // BearerToken means a pre-configured token (passed as password param).
-    const username = credential?.authType === CredentialAuthType.BasicAuth ? credential?.username : undefined;
+    const username = credential?.authType === CredentialAuthType.BasicAuth ? credential.username ?? undefined : undefined;
     const password = credential?.authType === CredentialAuthType.BasicAuth
-      ? credential?.encryptedPassword
+      ? credential.encryptedPassword ?? undefined
       : credential?.authType === CredentialAuthType.BearerToken
-        ? credential?.encryptedPassword
+        ? credential.encryptedPassword ?? undefined
         : undefined;
 
     // 1. List repositories from registry
@@ -210,255 +210,14 @@ export class RegistrySyncService {
 
     for (const repoName of repoNames) {
       try {
-        // Upsert DockerRepository
-        let repoEntity = await this.dockerRepoRepo.findOne({
-          where: { name: repoName, registryConnectionId: connection.id },
-        });
-
-        // 2. Get a token scoped for this repository
-        const token = await this.dockerConnector.getToken(
-          url,
-          username,
-          password,
-          `repository:${repoName}:pull`,
-        );
-
-        // 3. List tags for this repository
-        const tags = await this.dockerConnector.listTags(url, repoName, token ?? undefined, username, password);
-
-        // A registry keeps a repository in its catalog after its last tag is
-        // deleted, until garbage collection removes the directory. Mirroring
-        // those would resurrect just-deleted packages as empty ghosts.
-        if (tags.length === 0) {
-          if (repoEntity) {
-            await this.dockerTagRepo.delete({ repositoryId: repoEntity.id });
-            await this.dockerImageRepo.delete({ repositoryId: repoEntity.id });
-            await this.dockerRepoRepo.remove(repoEntity);
-            this.logger.log(`Dropped ${repoName}: no tags left on the registry`);
-          }
-          continue;
-        }
-
-        if (!repoEntity) {
-          repoEntity = await this.dockerRepoRepo.save(
-            this.dockerRepoRepo.create({
-              name: repoName,
-              registryConnectionId: connection.id,
-              tagCount: 0,
-              totalPulls: 0,
-              totalSize: 0,
-              isPublic: false,
-            }),
-          );
-        }
-
-        repoEntity.tagCount = tags.length;
-
-        let totalRepoSize = 0;
-        let latestImageCreatedAt: string | undefined;
-
-        for (const tagName of tags) {
-          try {
-            // 4. Get manifest for each tag
-            const manifest: DockerManifest | null = await this.dockerConnector.getManifest(
-              url,
-              repoName,
-              tagName,
-              token ?? undefined,
-              username,
-              password,
-            );
-
-            if (!manifest) continue;
-
-            // The digest the *tag* resolves to (the index digest for a
-            // multi-arch tag) — what `docker pull` sees and what a delete must
-            // target. `manifest._digest` is the platform child's digest.
-            const manifestDigest =
-              (await this.dockerConnector.getTagDigest(
-                url,
-                repoName,
-                tagName,
-                token ?? undefined,
-                username,
-                password,
-              )) ?? manifest._digest ?? '';
-
-            // Record every platform the tag publishes, not just the one we
-            // resolved the config from.
-            const platformInfo = await this.dockerConnector.getTagPlatforms(
-              url,
-              repoName,
-              tagName,
-              token ?? undefined,
-              username,
-              password,
-            );
-            const platforms = platformInfo.map(({ exists: _exists, ...platform }) => platform);
-
-            const layerSizes: number[] = (manifest.layers ?? []).map(
-              (l) => l.size ?? 0,
-            );
-            // Multi-arch: bill the whole tag, since every platform occupies
-            // storage. Single-arch collapses to the same number as before.
-            const totalTagSize = platforms.length > 0
-              ? platforms.reduce((sum, p) => sum + p.sizeBytes, 0)
-              : layerSizes.reduce((sum: number, s: number) => sum + s, 0);
-            totalRepoSize += totalTagSize;
-
-            // 5. Get image config for architecture/os info
-            let architecture = 'amd64';
-            let os = 'linux';
-            let imageConfig: DockerImageConfig | null = null;
-
-            if (manifest.config?.digest) {
-              imageConfig = await this.dockerConnector.getImageConfig(
-                url,
-                repoName,
-                manifest.config.digest,
-                token ?? undefined,
-                username,
-                password,
-              );
-
-              if (imageConfig) {
-                architecture = imageConfig.architecture ?? 'amd64';
-                os = imageConfig.os ?? 'linux';
-              }
-            }
-
-            // Upsert DockerTag
-            let tagEntity = await this.dockerTagRepo.findOne({
-              where: { repositoryId: repoEntity.id, name: tagName },
-            });
-
-            const tagPushedAt = imageConfig?.created ?? new Date().toISOString();
-
-            // Track latest image date for the repository's lastPushedAt
-            if (!latestImageCreatedAt || tagPushedAt > latestImageCreatedAt) {
-              latestImageCreatedAt = tagPushedAt;
-            }
-
-            if (!tagEntity) {
-              tagEntity = this.dockerTagRepo.create({
-                repositoryId: repoEntity.id,
-                name: tagName,
-                digest: manifestDigest,
-                sizeBytes: totalTagSize,
-                architecture,
-                os,
-                platforms,
-                pushedAt: tagPushedAt,
-                vulnerabilitySummary: {
-                  critical: 0,
-                  high: 0,
-                  medium: 0,
-                  low: 0,
-                  none: 0,
-                },
-              });
-            } else {
-              tagEntity.digest = manifestDigest;
-              tagEntity.sizeBytes = totalTagSize;
-              tagEntity.architecture = architecture;
-              tagEntity.os = os;
-              tagEntity.platforms = platforms;
-              tagEntity.pushedAt = tagPushedAt;
-            }
-
-            // Save tag
-            tagEntity = await this.dockerTagRepo.save(tagEntity);
-
-            // Upsert DockerImageDetail
-            if (imageConfig) {
-              let imageDetail = await this.dockerImageRepo.findOne({
-                where: { repositoryId: repoEntity.id, tag: tagName },
-              });
-
-              const layers = (imageConfig.history ?? []).map(
-                (h, idx) => ({
-                  digest: manifest.layers?.[idx]?.digest ?? '',
-                  sizeBytes: manifest.layers?.[idx]?.size ?? 0,
-                  command: h.created_by ?? '',
-                  createdAt: h.created ?? new Date().toISOString(),
-                }),
-              );
-
-              const labels = imageConfig.config?.Labels ?? {};
-              const exposedPorts = imageConfig.config?.ExposedPorts
-                ? Object.keys(imageConfig.config.ExposedPorts)
-                : undefined;
-              const entrypoint = imageConfig.config?.Entrypoint ?? undefined;
-              const cmd = imageConfig.config?.Cmd ?? undefined;
-              const env = imageConfig.config?.Env ?? undefined;
-
-              if (!imageDetail) {
-                imageDetail = this.dockerImageRepo.create({
-                  repositoryId: repoEntity.id,
-                  tag: tagName,
-                  digest: manifestDigest,
-                  architecture,
-                  os,
-                  platforms,
-                  sizeBytes: totalTagSize,
-                  layers,
-                  labels,
-                  exposedPorts,
-                  entrypoint,
-                  cmd,
-                  env,
-                  imageCreatedAt:
-                    imageConfig.created ?? new Date().toISOString(),
-                });
-              } else {
-                imageDetail.digest = manifestDigest;
-                imageDetail.architecture = architecture;
-                imageDetail.os = os;
-                imageDetail.platforms = platforms;
-                imageDetail.sizeBytes = totalTagSize;
-                imageDetail.layers = layers;
-                imageDetail.labels = labels;
-                imageDetail.exposedPorts = exposedPorts;
-                imageDetail.entrypoint = entrypoint;
-                imageDetail.cmd = cmd;
-                imageDetail.env = env;
-                imageDetail.imageCreatedAt =
-                  imageConfig.created ?? new Date().toISOString();
-              }
-
-              await this.dockerImageRepo.save(imageDetail);
-            }
-          } catch (tagError: unknown) {
-            this.logger.error(
-              `Failed to sync tag ${repoName}:${tagName}: ${(tagError as Error).message}`,
-            );
-          }
-        }
-
-        // Drop mirrored tags the registry no longer has, so a tag deleted
-        // anywhere (here, another client, `docker` CLI) stops being listed.
-        const staleTags = await this.dockerTagRepo.find({
-          where: { repositoryId: repoEntity.id, name: Not(In(tags)) },
-        });
-        if (staleTags.length > 0) {
-          const staleNames = staleTags.map((t) => t.name);
-          await this.dockerTagRepo.delete({ repositoryId: repoEntity.id, name: In(staleNames) });
-          await this.dockerImageRepo.delete({ repositoryId: repoEntity.id, tag: In(staleNames) });
-          this.logger.log(
-            `Removed ${staleNames.length} stale tag(s) from ${repoName}: ${staleNames.slice(0, 5).join(', ')}`,
-          );
-        }
-
-        repoEntity.totalSize = totalRepoSize;
-        // Use the most recent image creation date across all tags as lastPushedAt
-        repoEntity.lastPushedAt = latestImageCreatedAt ?? repoEntity.lastPushedAt ?? new Date().toISOString();
-        await this.dockerRepoRepo.save(repoEntity);
+        await this.syncDockerRepository(connection, repoName, { username, password });
       } catch (repoError: unknown) {
         this.logger.error(
           `Failed to sync repo ${repoName}: ${(repoError as Error).message}`,
         );
       }
     }
+
 
     // Drop mirrored repositories the catalog no longer lists — removed from
     // the registry's storage, by another client, or by garbage collection.
@@ -499,6 +258,306 @@ export class RegistrySyncService {
   }
 
   /**
+   * Re-sync a single Docker repository, resolving the connection's credential
+   * first. This is what the agent event poller calls after a push or a delete,
+   * instead of walking the whole catalog for one changed repository.
+   */
+  async syncDockerRepositoryByName(
+    connection: RegistryConnectionEntity,
+    repoName: string,
+  ): Promise<boolean> {
+    const credential = await this.credentialCrypto.prepareForUse(
+      await this.credentialRepo.findOne({
+        where: { registryConnectionId: connection.id },
+      }),
+    );
+
+    const username =
+      credential?.authType === CredentialAuthType.BasicAuth
+        ? credential.username ?? undefined
+        : undefined;
+    const password =
+      credential?.authType === CredentialAuthType.BasicAuth ||
+      credential?.authType === CredentialAuthType.BearerToken
+        ? credential.encryptedPassword ?? undefined
+        : undefined;
+
+    return this.syncDockerRepository(connection, repoName, { username, password });
+  }
+
+  /**
+   * Sync one Docker repository: its tags, manifests and image details.
+   *
+   * The full sync walks the catalog and calls this per repository; the agent
+   * event poller calls it for just the repository a push or delete touched.
+   * Returns false when the registry no longer has the repository, in which
+   * case its mirror rows have been dropped.
+   *
+   * Pull counters and scan results come from the agent, not from the registry,
+   * so an existing tag row keeps its `pullCount`, `lastPulledAt` and
+   * `vulnerabilitySummary`: re-syncing must never reset them.
+   */
+  async syncDockerRepository(
+    connection: RegistryConnectionEntity,
+    repoName: string,
+    auth: { username?: string; password?: string },
+  ): Promise<boolean> {
+    const url = connection.url;
+    const { username, password } = auth;
+
+    let repoEntity = await this.dockerRepoRepo.findOne({
+      where: { name: repoName, registryConnectionId: connection.id },
+    });
+
+    // A token scoped for this repository
+    const token = await this.dockerConnector.getToken(
+      url,
+      username,
+      password,
+      `repository:${repoName}:pull`,
+    );
+
+    const tags = await this.dockerConnector.listTags(
+      url,
+      repoName,
+      token ?? undefined,
+      username,
+      password,
+    );
+
+    // A registry keeps a repository in its catalog after its last tag is
+    // deleted, until garbage collection removes the directory. Mirroring
+    // those would resurrect just-deleted packages as empty ghosts.
+    if (tags.length === 0) {
+      if (repoEntity) {
+        await this.dockerTagRepo.delete({ repositoryId: repoEntity.id });
+        await this.dockerImageRepo.delete({ repositoryId: repoEntity.id });
+        await this.dockerRepoRepo.remove(repoEntity);
+        this.logger.log(`Dropped ${repoName}: no tags left on the registry`);
+      }
+      return false;
+    }
+
+    if (!repoEntity) {
+      repoEntity = await this.dockerRepoRepo.save(
+        this.dockerRepoRepo.create({
+          name: repoName,
+          registryConnectionId: connection.id,
+          tagCount: 0,
+          totalPulls: 0,
+          totalSize: 0,
+          isPublic: false,
+        }),
+      );
+    }
+
+    repoEntity.tagCount = tags.length;
+
+    let totalRepoSize = 0;
+    let latestImageCreatedAt: string | undefined;
+
+    for (const tagName of tags) {
+      try {
+        // 4. Get manifest for each tag
+        const manifest: DockerManifest | null = await this.dockerConnector.getManifest(
+          url,
+          repoName,
+          tagName,
+          token ?? undefined,
+          username,
+          password,
+        );
+
+        if (!manifest) continue;
+
+        // The digest the *tag* resolves to (the index digest for a
+        // multi-arch tag) — what `docker pull` sees and what a delete must
+        // target. `manifest._digest` is the platform child's digest.
+        const manifestDigest =
+          (await this.dockerConnector.getTagDigest(
+            url,
+            repoName,
+            tagName,
+            token ?? undefined,
+            username,
+            password,
+          )) ?? manifest._digest ?? '';
+
+        // Record every platform the tag publishes, not just the one we
+        // resolved the config from.
+        const platformInfo = await this.dockerConnector.getTagPlatforms(
+          url,
+          repoName,
+          tagName,
+          token ?? undefined,
+          username,
+          password,
+        );
+        const platforms = platformInfo.map(({ exists: _exists, ...platform }) => platform);
+
+        const layerSizes: number[] = (manifest.layers ?? []).map(
+          (l) => l.size ?? 0,
+        );
+        // Multi-arch: bill the whole tag, since every platform occupies
+        // storage. Single-arch collapses to the same number as before.
+        const totalTagSize = platforms.length > 0
+          ? platforms.reduce((sum, p) => sum + p.sizeBytes, 0)
+          : layerSizes.reduce((sum: number, s: number) => sum + s, 0);
+        totalRepoSize += totalTagSize;
+
+        // 5. Get image config for architecture/os info
+        let architecture = 'amd64';
+        let os = 'linux';
+        let imageConfig: DockerImageConfig | null = null;
+
+        if (manifest.config?.digest) {
+          imageConfig = await this.dockerConnector.getImageConfig(
+            url,
+            repoName,
+            manifest.config.digest,
+            token ?? undefined,
+            username,
+            password,
+          );
+
+          if (imageConfig) {
+            architecture = imageConfig.architecture ?? 'amd64';
+            os = imageConfig.os ?? 'linux';
+          }
+        }
+
+        // Upsert DockerTag
+        let tagEntity = await this.dockerTagRepo.findOne({
+          where: { repositoryId: repoEntity.id, name: tagName },
+        });
+
+        const tagPushedAt = imageConfig?.created ?? new Date().toISOString();
+
+        // Track latest image date for the repository's lastPushedAt
+        if (!latestImageCreatedAt || tagPushedAt > latestImageCreatedAt) {
+          latestImageCreatedAt = tagPushedAt;
+        }
+
+        if (!tagEntity) {
+          tagEntity = this.dockerTagRepo.create({
+            repositoryId: repoEntity.id,
+            name: tagName,
+            digest: manifestDigest,
+            sizeBytes: totalTagSize,
+            architecture,
+            os,
+            platforms,
+            pushedAt: tagPushedAt,
+            vulnerabilitySummary: {
+              critical: 0,
+              high: 0,
+              medium: 0,
+              low: 0,
+              none: 0,
+            },
+          });
+        } else {
+          tagEntity.digest = manifestDigest;
+          tagEntity.sizeBytes = totalTagSize;
+          tagEntity.architecture = architecture;
+          tagEntity.os = os;
+          tagEntity.platforms = platforms;
+          tagEntity.pushedAt = tagPushedAt;
+        }
+
+        // Save tag
+        tagEntity = await this.dockerTagRepo.save(tagEntity);
+
+        // Upsert DockerImageDetail
+        if (imageConfig) {
+          let imageDetail = await this.dockerImageRepo.findOne({
+            where: { repositoryId: repoEntity.id, tag: tagName },
+          });
+
+          const layers = (imageConfig.history ?? []).map(
+            (h, idx) => ({
+              digest: manifest.layers?.[idx]?.digest ?? '',
+              sizeBytes: manifest.layers?.[idx]?.size ?? 0,
+              command: h.created_by ?? '',
+              createdAt: h.created ?? new Date().toISOString(),
+            }),
+          );
+
+          const labels = imageConfig.config?.Labels ?? {};
+          const exposedPorts = imageConfig.config?.ExposedPorts
+            ? Object.keys(imageConfig.config.ExposedPorts)
+            : undefined;
+          const entrypoint = imageConfig.config?.Entrypoint ?? undefined;
+          const cmd = imageConfig.config?.Cmd ?? undefined;
+          const env = imageConfig.config?.Env ?? undefined;
+
+          if (!imageDetail) {
+            imageDetail = this.dockerImageRepo.create({
+              repositoryId: repoEntity.id,
+              tag: tagName,
+              digest: manifestDigest,
+              architecture,
+              os,
+              platforms,
+              sizeBytes: totalTagSize,
+              layers,
+              labels,
+              exposedPorts,
+              entrypoint,
+              cmd,
+              env,
+              imageCreatedAt:
+                imageConfig.created ?? new Date().toISOString(),
+            });
+          } else {
+            imageDetail.digest = manifestDigest;
+            imageDetail.architecture = architecture;
+            imageDetail.os = os;
+            imageDetail.platforms = platforms;
+            imageDetail.sizeBytes = totalTagSize;
+            imageDetail.layers = layers;
+            imageDetail.labels = labels;
+            imageDetail.exposedPorts = exposedPorts;
+            imageDetail.entrypoint = entrypoint;
+            imageDetail.cmd = cmd;
+            imageDetail.env = env;
+            imageDetail.imageCreatedAt =
+              imageConfig.created ?? new Date().toISOString();
+          }
+
+          await this.dockerImageRepo.save(imageDetail);
+        }
+      } catch (tagError: unknown) {
+        this.logger.error(
+          `Failed to sync tag ${repoName}:${tagName}: ${(tagError as Error).message}`,
+        );
+      }
+    }
+
+    // Drop mirrored tags the registry no longer has, so a tag deleted
+    // anywhere (here, another client, `docker` CLI) stops being listed.
+    const staleTags = await this.dockerTagRepo.find({
+      where: { repositoryId: repoEntity.id, name: Not(In(tags)) },
+    });
+    if (staleTags.length > 0) {
+      const staleNames = staleTags.map((t) => t.name);
+      await this.dockerTagRepo.delete({ repositoryId: repoEntity.id, name: In(staleNames) });
+      await this.dockerImageRepo.delete({ repositoryId: repoEntity.id, tag: In(staleNames) });
+      this.logger.log(
+        `Removed ${staleNames.length} stale tag(s) from ${repoName}: ${staleNames.slice(0, 5).join(', ')}`,
+      );
+    }
+
+    repoEntity.totalSize = totalRepoSize;
+    // Use the most recent image creation date across all tags as lastPushedAt
+    repoEntity.lastPushedAt = latestImageCreatedAt ?? repoEntity.lastPushedAt ?? new Date().toISOString();
+    await this.dockerRepoRepo.save(repoEntity);
+
+    return true;
+  }
+
+
+  /**
    * Sync NPM registry: search packages, get metadata, upsert to database.
    */
   async syncNpm(
@@ -508,10 +567,10 @@ export class RegistrySyncService {
     const url = connection.url;
     // NPM: BearerToken/ApiKey → token in Authorization header; BasicAuth → username+password
     const token = credential?.authType === CredentialAuthType.BearerToken || credential?.authType === CredentialAuthType.ApiKey
-      ? credential?.encryptedPassword
+      ? credential.encryptedPassword ?? undefined
       : undefined;
-    const username = credential?.authType === CredentialAuthType.BasicAuth ? credential?.username : undefined;
-    const password = credential?.authType === CredentialAuthType.BasicAuth ? credential?.encryptedPassword : undefined;
+    const username = credential?.authType === CredentialAuthType.BasicAuth ? credential.username ?? undefined : undefined;
+    const password = credential?.authType === CredentialAuthType.BasicAuth ? credential.encryptedPassword ?? undefined : undefined;
 
     // 1. Search packages
     const searchResults = await this.npmConnector.searchPackages(
@@ -678,14 +737,14 @@ export class RegistrySyncService {
     //        BasicAuth → sends Authorization: Basic (username:encryptedPassword)
     //        BearerToken → sends Authorization: Bearer encryptedPassword (via apiKey param, no password)
     const apiKey = credential?.authType === CredentialAuthType.ApiKey || credential?.authType === CredentialAuthType.BearerToken
-      ? credential?.encryptedPassword
+      ? credential.encryptedPassword ?? undefined
       : credential?.authType === CredentialAuthType.BasicAuth
-        ? credential?.username
+        ? credential.username ?? undefined
         : undefined;
-    const password = credential?.authType === CredentialAuthType.BasicAuth ? credential?.encryptedPassword : undefined;
+    const password = credential?.authType === CredentialAuthType.BasicAuth ? credential.encryptedPassword ?? undefined : undefined;
     const apiKeyHeader = credential?.authType === CredentialAuthType.BearerToken
       ? 'Authorization'
-      : credential?.headerName;
+      : credential?.headerName ?? undefined;
 
     // 1. Search packages
     const searchResults = await this.nugetConnector.searchPackages(
@@ -874,23 +933,23 @@ export class RegistrySyncService {
       case RegistryType.Docker:
         result = await this.dockerConnector.testConnection(
           connection.url,
-          credential?.authType === CredentialAuthType.BasicAuth ? credential?.username : undefined,
-          credential?.encryptedPassword,
+          credential?.authType === CredentialAuthType.BasicAuth ? credential.username ?? undefined : undefined,
+          credential?.encryptedPassword ?? undefined,
         );
         break;
       case RegistryType.NuGet: {
         const nugetApiKey = credential?.authType === CredentialAuthType.ApiKey || credential?.authType === CredentialAuthType.BearerToken
-          ? credential?.encryptedPassword
-          : credential?.username;
-        const nugetPassword = credential?.authType === CredentialAuthType.BasicAuth ? credential?.encryptedPassword : undefined;
-        const nugetHeader = credential?.authType === CredentialAuthType.BearerToken ? 'Authorization' : credential?.headerName;
+          ? credential.encryptedPassword ?? undefined
+          : credential?.username ?? undefined;
+        const nugetPassword = credential?.authType === CredentialAuthType.BasicAuth ? credential.encryptedPassword ?? undefined : undefined;
+        const nugetHeader = credential?.authType === CredentialAuthType.BearerToken ? 'Authorization' : credential?.headerName ?? undefined;
         result = await this.nugetConnector.testConnection(connection.url, nugetApiKey, nugetPassword, nugetHeader);
         break;
       }
       case RegistryType.NPM: {
-        const npmToken = credential?.authType === CredentialAuthType.BearerToken || credential?.authType === CredentialAuthType.ApiKey ? credential?.encryptedPassword : undefined;
-        const npmUsername = credential?.authType === CredentialAuthType.BasicAuth ? credential?.username : undefined;
-        const npmPassword = credential?.authType === CredentialAuthType.BasicAuth ? credential?.encryptedPassword : undefined;
+        const npmToken = credential?.authType === CredentialAuthType.BearerToken || credential?.authType === CredentialAuthType.ApiKey ? credential.encryptedPassword ?? undefined : undefined;
+        const npmUsername = credential?.authType === CredentialAuthType.BasicAuth ? credential.username ?? undefined : undefined;
+        const npmPassword = credential?.authType === CredentialAuthType.BasicAuth ? credential.encryptedPassword ?? undefined : undefined;
         result = await this.npmConnector.testConnection(connection.url, npmToken, npmUsername, npmPassword);
         break;
       }

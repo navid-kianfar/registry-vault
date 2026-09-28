@@ -7,6 +7,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import type { ScanState } from '@registry-vault/shared';
 import { DockerRepositoryEntity } from './docker-repository.entity';
 
 @Entity('docker_tags')
@@ -49,6 +50,10 @@ export class DockerTagEntity {
   @Column({ nullable: true })
   lastPulledAt?: string;
 
+  /** Pulls counted from the registry agent's event log; 0 without an agent. */
+  @Column({ type: 'int', default: 0 })
+  pullCount!: number;
+
   @Column({ type: 'simple-json', nullable: true })
   vulnerabilitySummary?: {
     critical: number;
@@ -56,7 +61,9 @@ export class DockerTagEntity {
     medium: number;
     low: number;
     none: number;
+    unknown?: number;
     lastScannedAt?: string;
+    scanState?: ScanState;
   };
 
   @CreateDateColumn()

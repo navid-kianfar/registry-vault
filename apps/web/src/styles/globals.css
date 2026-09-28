@@ -43,6 +43,18 @@
     --docker: 207 90% 54%;
     --nuget: 270 52% 50%;
     --npm: 1 63% 51%;
+
+    /* Vulnerability severity. Each value is the lightness at which the hue
+       clears 4.5:1 as text on a 10% tint of itself — the badge, which is the
+       worst case it is used in. A value picked against the plain background
+       alone fails there. Recompute (do not nudge by eye) if --background or
+       the badge tint changes. */
+    --severity-critical: 0 72% 45%;
+    --severity-high: 21 90% 38%;
+    --severity-medium: 35 92% 31%;
+    --severity-low: 221 83% 45%;
+    --severity-unknown: 215 16% 44%;
+    --severity-none: 160 84% 26%;
   }
 
   .dark {
@@ -84,6 +96,13 @@
     --docker: 207 90% 61%;
     --nuget: 270 52% 62%;
     --npm: 1 63% 58%;
+
+    --severity-critical: 0 84% 65%;
+    --severity-high: 27 96% 61%;
+    --severity-medium: 43 96% 56%;
+    --severity-low: 213 94% 68%;
+    --severity-unknown: 215 20% 65%;
+    --severity-none: 158 64% 52%;
   }
 }
 

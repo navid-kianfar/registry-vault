@@ -46,10 +46,50 @@ import type {
   ICreateUserRequest,
   IUpdateUserRequest,
   IChangePasswordRequest,
+  AgentLogSource,
+  IAgentGcJob,
+  IAgentHealth,
+  IAgentInfo,
+  IAgentLogs,
+  IAgentMaintenance,
+  IAgentOverviewItem,
+  IAgentSettings,
+  IAgentStorage,
+  IAgentTestRequest,
+  IAgentUploads,
+  ICreateRegistryUserRequest,
+  IDockerPullStats,
+  IPurgeUploadsRequest,
+  IPurgeUploadsResult,
+  IRegistryUser,
+  IRegistryUserResult,
+  IRemoveRepositoryRequest,
+  IScanRequest,
+  IScanResult,
+  IStartGcRequest,
+  IUpdateMaintenanceRequest,
+  IUpdateRegistryUserRequest,
 } from '@registry-vault/shared';
 
 const API_BASE = '/api';
 const AUTH_TOKEN_KEY = 'registry-vault-auth-token';
+
+/**
+ * An HTTP failure with its status kept. The agent relay distinguishes states by
+ * status alone — 404 "no agent configured", 502 "agent unreachable", 409
+ * "another job is running" — so a bare message cannot tell them apart.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+const METHODS_WITH_JSON_BODY = new Set(['POST', 'PATCH', 'PUT']);
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
@@ -62,7 +102,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   const method = options?.method?.toUpperCase();
-  if (method === 'POST' || method === 'PATCH') {
+  if (method && METHODS_WITH_JSON_BODY.has(method)) {
     headers['Content-Type'] = 'application/json';
   }
 
@@ -80,12 +120,15 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       localStorage.removeItem(AUTH_TOKEN_KEY);
       window.location.href = '/login';
     }
-    throw new Error('Unauthorized');
+    throw new ApiError(401, 'Unauthorized');
   }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(errorBody.message || `HTTP ${response.status}: ${response.statusText}`);
+    throw new ApiError(
+      response.status,
+      errorBody.message || `HTTP ${response.status}: ${response.statusText}`,
+    );
   }
 
   return response.json();
@@ -117,6 +160,11 @@ function buildQueryString(params: Record<string, unknown>): string {
 
   const qs = searchParams.toString();
   return qs ? `?${qs}` : '';
+}
+
+/** Every agent route hangs off this prefix; the browser never sees the agent key. */
+function agentBase(connectionId: string): string {
+  return `/registries/${encodeURIComponent(connectionId)}/agent`;
 }
 
 class HttpApiClient implements IApiClient {
@@ -400,6 +448,170 @@ class HttpApiClient implements IApiClient {
       method: 'POST',
       body: JSON.stringify(request),
     });
+  }
+
+  // Registry agent
+  async testAgent(request: IAgentTestRequest): Promise<ApiResponse<IAgentInfo>> {
+    return apiFetch('/settings/registries/agent/test', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async testConnectionAgent(
+    connectionId: string,
+    request: IAgentTestRequest,
+  ): Promise<ApiResponse<IAgentInfo>> {
+    return apiFetch(`/settings/registries/${encodeURIComponent(connectionId)}/agent/test`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getAgentsOverview(): Promise<ApiResponse<IAgentOverviewItem[]>> {
+    return apiFetch('/registries/agents/overview');
+  }
+
+  async getAgentHealth(connectionId: string): Promise<ApiResponse<IAgentHealth>> {
+    return apiFetch(`${agentBase(connectionId)}/health`);
+  }
+
+  async getAgentStorage(connectionId: string, refresh: boolean): Promise<ApiResponse<IAgentStorage>> {
+    return apiFetch(`${agentBase(connectionId)}/storage${buildQueryString({ refresh })}`);
+  }
+
+  async getAgentGcJob(connectionId: string): Promise<ApiResponse<IAgentGcJob | null>> {
+    return apiFetch(`${agentBase(connectionId)}/gc`);
+  }
+
+  async getAgentGcHistory(connectionId: string): Promise<ApiResponse<IAgentGcJob[]>> {
+    return apiFetch(`${agentBase(connectionId)}/gc/history`);
+  }
+
+  async startAgentGc(connectionId: string, request: IStartGcRequest): Promise<ApiResponse<IAgentGcJob>> {
+    return apiFetch(`${agentBase(connectionId)}/gc`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async removeAgentRepository(
+    connectionId: string,
+    request: IRemoveRepositoryRequest,
+  ): Promise<ApiResponse<void>> {
+    return apiFetch(`${agentBase(connectionId)}/repositories/remove`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getAgentUploads(connectionId: string, olderThanHours: number): Promise<ApiResponse<IAgentUploads>> {
+    return apiFetch(`${agentBase(connectionId)}/uploads${buildQueryString({ olderThanHours })}`);
+  }
+
+  async purgeAgentUploads(
+    connectionId: string,
+    request: IPurgeUploadsRequest,
+  ): Promise<ApiResponse<IPurgeUploadsResult>> {
+    return apiFetch(`${agentBase(connectionId)}/uploads/purge`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getAgentMaintenance(connectionId: string): Promise<ApiResponse<IAgentMaintenance>> {
+    return apiFetch(`${agentBase(connectionId)}/maintenance`);
+  }
+
+  async updateAgentMaintenance(
+    connectionId: string,
+    request: IUpdateMaintenanceRequest,
+  ): Promise<ApiResponse<IAgentMaintenance>> {
+    return apiFetch(`${agentBase(connectionId)}/maintenance`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getAgentLogs(
+    connectionId: string,
+    source: AgentLogSource,
+    lines: number,
+  ): Promise<ApiResponse<IAgentLogs>> {
+    return apiFetch(`${agentBase(connectionId)}/logs${buildQueryString({ source, lines })}`);
+  }
+
+  async restartAgentRegistry(connectionId: string): Promise<ApiResponse<{ restarting: boolean }>> {
+    return apiFetch(`${agentBase(connectionId)}/registry/restart`, { method: 'POST' });
+  }
+
+  async getAgentSettings(connectionId: string): Promise<ApiResponse<IAgentSettings>> {
+    return apiFetch(`${agentBase(connectionId)}/settings`);
+  }
+
+  async updateAgentSettings(
+    connectionId: string,
+    request: IAgentSettings,
+  ): Promise<ApiResponse<IAgentSettings>> {
+    return apiFetch(`${agentBase(connectionId)}/settings`, {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async getRegistryUsers(connectionId: string): Promise<ApiResponse<IRegistryUser[]>> {
+    return apiFetch(`${agentBase(connectionId)}/users`);
+  }
+
+  async createRegistryUser(
+    connectionId: string,
+    request: ICreateRegistryUserRequest,
+  ): Promise<ApiResponse<IRegistryUserResult>> {
+    return apiFetch(`${agentBase(connectionId)}/users`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async updateRegistryUser(
+    connectionId: string,
+    username: string,
+    request: IUpdateRegistryUserRequest,
+  ): Promise<ApiResponse<IRegistryUserResult>> {
+    return apiFetch(`${agentBase(connectionId)}/users/${encodeURIComponent(username)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(request),
+    });
+  }
+
+  async deleteRegistryUser(connectionId: string, username: string): Promise<ApiResponse<void>> {
+    return apiFetch(`${agentBase(connectionId)}/users/${encodeURIComponent(username)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Docker scans and pull statistics
+  async getDockerPullStats(repositoryId: string, days: number): Promise<ApiResponse<IDockerPullStats>> {
+    return apiFetch(
+      `/docker/repositories/${encodeURIComponent(repositoryId)}/pulls${buildQueryString({ days })}`,
+    );
+  }
+
+  async getTagScan(repositoryId: string, tagName: string): Promise<ApiResponse<IScanResult | null>> {
+    return apiFetch(
+      `/docker/repositories/${encodeURIComponent(repositoryId)}/tags/${encodeURIComponent(tagName)}/scan`,
+    );
+  }
+
+  async startTagScan(
+    repositoryId: string,
+    tagName: string,
+    request: IScanRequest,
+  ): Promise<ApiResponse<IScanResult>> {
+    return apiFetch(
+      `/docker/repositories/${encodeURIComponent(repositoryId)}/tags/${encodeURIComponent(tagName)}/scan`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
   }
 }
 

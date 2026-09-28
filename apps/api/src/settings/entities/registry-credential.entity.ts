@@ -23,16 +23,20 @@ export class RegistryCredentialEntity {
   authType!: CredentialAuthType;
 
   /** Username — for BasicAuth */
-  @Column({ nullable: true })
-  username?: string;
+  @Column({ type: 'varchar', nullable: true })
+  username?: string | null;
 
-  /** Secret value: password for BasicAuth, token for BearerToken, key for ApiKey */
-  @Column({ nullable: true })
-  encryptedPassword?: string;
+  /**
+   * Secret value: password for BasicAuth, token for BearerToken, key for ApiKey.
+   * Nullable on purpose — clearing it has to write NULL, and TypeORM's save()
+   * skips a property set to undefined, which would leave the old secret behind.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  encryptedPassword?: string | null;
 
   /** Custom header name — for ApiKey auth type */
-  @Column({ nullable: true })
-  headerName?: string;
+  @Column({ type: 'varchar', nullable: true })
+  headerName?: string | null;
 
   @Column({ nullable: true })
   lastUsedAt?: string;

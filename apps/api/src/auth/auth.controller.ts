@@ -6,6 +6,7 @@ interface JwtRequest {
   user: { userId: string; username: string; role: number };
 }
 import { Public } from '../common/decorators/public.decorator';
+import { AnyRole } from '../common/decorators/roles.decorator';
 
 @Controller('api/auth')
 export class AuthController {
@@ -17,6 +18,8 @@ export class AuthController {
     return this.authService.login(loginRequest);
   }
 
+  /** Anyone signed in can sign out; it changes nothing but the client's token. */
+  @AnyRole()
   @Post('logout')
   async logout(): Promise<void> {
     // Acknowledge logout - token invalidation is handled client-side

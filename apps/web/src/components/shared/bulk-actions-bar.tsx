@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DatePicker } from '@/components/ui/date-picker';
+import { GatedControl } from '@/components/shared/gated-control';
 
 interface BulkActionsBarProps {
   count: number;
@@ -14,6 +15,12 @@ interface BulkActionsBarProps {
   onDeleteOlderThan?: (date: string) => void;
   onClear: () => void;
   isDeleting?: boolean;
+  /**
+   * Set when the viewer may select and delete but not run a cleanup rule:
+   * the two rule buttons stay visible and disabled, carrying this as their
+   * explanation, rather than vanishing.
+   */
+  cleanupDisabledReason?: string;
 }
 
 export function BulkActionsBar({
@@ -23,7 +30,9 @@ export function BulkActionsBar({
   onDeleteOlderThan,
   onClear,
   isDeleting,
+  cleanupDisabledReason,
 }: BulkActionsBarProps) {
+  const isCleanupBlocked = !!cleanupDisabledReason;
   const [keepCount, setKeepCount] = useState(3);
   const [olderThanDate, setOlderThanDate] = useState<Date | undefined>(undefined);
   const [keepOpen, setKeepOpen] = useState(false);
@@ -50,12 +59,19 @@ export function BulkActionsBar({
 
       {onKeepLastN && (
         <Popover open={keepOpen} onOpenChange={setKeepOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5" disabled={count === 0 || isDeleting}>
-              <Clock className="h-3.5 w-3.5" />
-              Keep Last N
-            </Button>
-          </PopoverTrigger>
+          <GatedControl disabled={isCleanupBlocked} reason={cleanupDisabledReason ?? ''}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={count === 0 || isDeleting || isCleanupBlocked}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                Keep Last N
+              </Button>
+            </PopoverTrigger>
+          </GatedControl>
           <PopoverContent className="w-64" side="top">
             <div className="space-y-3">
               <div className="space-y-1.5">
@@ -86,12 +102,19 @@ export function BulkActionsBar({
 
       {onDeleteOlderThan && (
         <Popover open={olderOpen} onOpenChange={setOlderOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5" disabled={count === 0 || isDeleting}>
-              <CalendarX2 className="h-3.5 w-3.5" />
-              Delete Older Than
-            </Button>
-          </PopoverTrigger>
+          <GatedControl disabled={isCleanupBlocked} reason={cleanupDisabledReason ?? ''}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={count === 0 || isDeleting || isCleanupBlocked}
+              >
+                <CalendarX2 className="h-3.5 w-3.5" />
+                Delete Older Than
+              </Button>
+            </PopoverTrigger>
+          </GatedControl>
           <PopoverContent className="w-auto p-3 space-y-3" side="top">
             <div className="space-y-1.5">
               <Label>Delete versions published before</Label>

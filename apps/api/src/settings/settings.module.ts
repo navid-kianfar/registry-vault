@@ -10,6 +10,7 @@ import { SettingsController } from './settings.controller';
 import { CredentialsController } from './credentials.controller';
 import { RegistrySyncModule } from '../registry-sync/registry-sync.module';
 import { BulkModule } from '../bulk/bulk.module';
+import { AgentClientModule } from '../agent/agent-client.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { BulkModule } from '../bulk/bulk.module';
     ]),
     RegistrySyncModule,
     BulkModule,
+    AgentClientModule,
   ],
   providers: [SettingsService],
   controllers: [SettingsController, CredentialsController],

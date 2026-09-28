@@ -2,6 +2,11 @@ import { Controller, Get, Param, Query } from '@nestjs/common';
 import type { ITeam, PaginatedResponse } from '@registry-vault/shared';
 import { TeamsService } from './teams.service';
 
+/**
+ * Read-only today. Team create/update/delete do not exist yet; when they are
+ * added they are administrator work, and the global RolesGuard already requires
+ * that of any route here that is not a GET.
+ */
 @Controller('api/teams')
 export class TeamsController {
   constructor(private readonly teamsService: TeamsService) {}

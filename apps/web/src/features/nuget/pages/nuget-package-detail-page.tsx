@@ -8,6 +8,8 @@ import { StatCard } from '@/components/shared/stat-card';
 import { CopyCommand } from '@/components/shared/copy-command';
 import { EmptyState } from '@/components/shared/empty-state';
 import { BulkActionsBar } from '@/components/shared/bulk-actions-bar';
+import { ADMIN_ONLY_REASON, CURATE_ONLY_REASON, GatedControl } from '@/components/shared/gated-control';
+import { useCanCurate, useIsAdmin } from '@/hooks/use-is-admin';
 import { BulkDeleteConfirmationDialog } from '@/components/shared/bulk-delete-confirmation-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -90,6 +92,10 @@ export default function NugetPackageDetailPage() {
   const selection = useSelection(allVersionIds);
   const bulkDelete = useBulkDelete();
   const cleanupVersions = useCleanupVersions();
+  // Deleting versions is curation; a cleanup rule deletes by policy and stays
+  // administrator-only.
+  const canCurate = useCanCurate();
+  const isAdmin = useIsAdmin();
 
   const selectedItems = useMemo(
     () => (versions ?? [])
@@ -208,15 +214,18 @@ export default function NugetPackageDetailPage() {
 
         <TabsContent value="versions" className="space-y-3 mt-4">
           <div className="flex items-center justify-end">
-            <Button
-              variant={selectionMode ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={() => selectionMode ? handleExitSelectionMode() : setSelectionMode(true)}
-              className="gap-1.5"
-            >
-              <ListChecks className="h-4 w-4" />
-              {selectionMode ? 'Cancel' : 'Select'}
-            </Button>
+            <GatedControl disabled={!canCurate} reason={CURATE_ONLY_REASON}>
+              <Button
+                variant={selectionMode ? 'secondary' : 'outline'}
+                size="sm"
+                disabled={!canCurate}
+                onClick={() => selectionMode ? handleExitSelectionMode() : setSelectionMode(true)}
+                className="gap-1.5"
+              >
+                <ListChecks className="h-4 w-4" />
+                {selectionMode ? 'Cancel' : 'Select'}
+              </Button>
+            </GatedControl>
           </div>
 
           {selectionMode && allVersionIds.length > 0 && (
@@ -255,7 +264,7 @@ export default function NugetPackageDetailPage() {
         </TabsContent>
 
         <TabsContent value="dependencies" className="space-y-4 mt-4">
-          {versions?.[0]?.dependencies.length ? (
+          {versions?.[0]?.dependencies?.length ? (
             versions[0].dependencies.map((group) => (
               <Card key={group.targetFramework}>
                 <CardHeader className="pb-2">
@@ -289,6 +298,7 @@ export default function NugetPackageDetailPage() {
           onDeleteOlderThan={handleDeleteOlderThan}
           onClear={selection.clear}
           isDeleting={bulkDelete.isPending || cleanupVersions.isPending}
+          cleanupDisabledReason={isAdmin ? undefined : ADMIN_ONLY_REASON}
         />
       )}
 

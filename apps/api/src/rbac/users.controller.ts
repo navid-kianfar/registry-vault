@@ -1,9 +1,22 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Query,
+  Body,
+  ForbiddenException,
+  Request,
+} from '@nestjs/common';
 import type { IUser, ICreateUserRequest, IUpdateUserRequest, IChangePasswordRequest, PaginatedResponse } from '@registry-vault/shared';
+import { Role } from '@registry-vault/shared/enums';
 import { UsersService } from './users.service';
+import { AnyRole, Roles } from '../common/decorators/roles.decorator';
 
 interface JwtRequest {
-  user: { userId: string; username: string; role: number };
+  user: { userId: string; username: string; role: Role };
 }
 
 @Controller('api/users')
@@ -33,11 +46,13 @@ export class UsersController {
   }
 
   @Post()
+  @Roles(Role.Admin)
   async createUser(@Body() body: ICreateUserRequest): Promise<IUser> {
     return this.usersService.createUser(body);
   }
 
   @Patch(':id')
+  @Roles(Role.Admin)
   async updateUser(
     @Param('id') id: string,
     @Body() body: IUpdateUserRequest,
@@ -46,22 +61,40 @@ export class UsersController {
   }
 
   @Delete(':id')
+  @Roles(Role.Admin)
   async deleteUser(@Param('id') id: string): Promise<void> {
     return this.usersService.deleteUser(id);
   }
 
+  /**
+   * Change a password. Anyone may change their own, proving they know the
+   * current one; only an administrator may reset someone else's, and then the
+   * current password is not required because they do not know it.
+   *
+   * Without the ownership check here, "any authenticated user" would have meant
+   * any reader could reset the administrator's password.
+   */
   @Patch(':id/password')
+  @AnyRole()
   async changePassword(
     @Param('id') id: string,
     @Body() body: IChangePasswordRequest,
     @Request() req: JwtRequest,
   ): Promise<void> {
-    // If changing own password, require currentPassword verification
-    // If admin changes another user's password, skip current password check
     const isSelf = req.user.userId === id;
-    return this.usersService.changePassword(id, {
-      ...body,
-      currentPassword: isSelf ? body.currentPassword : undefined,
-    });
+
+    if (isSelf) {
+      return this.usersService.changeOwnPassword(
+        id,
+        body.currentPassword ?? '',
+        body.newPassword,
+      );
+    }
+
+    if (req.user.role !== Role.Admin) {
+      throw new ForbiddenException("Only an administrator can change another user's password");
+    }
+
+    return this.usersService.resetPassword(id, body.newPassword);
   }
 }

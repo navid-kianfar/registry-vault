@@ -26,6 +26,25 @@ import type { ReactNode } from 'react';
 import type { IRegistryConnection } from '@registry-vault/shared';
 import { BrandMark } from '@/components/shared/brand-mark';
 
+/**
+ * What to say about a connection's agent, if anything. Read straight from the
+ * connection list the sidebar already has — the sidebar never fires a request
+ * of its own for this.
+ */
+function agentWarning(conn: IRegistryConnection): string | null {
+  if (!conn.agent) return null;
+  switch (conn.agent.status) {
+    case 'online':
+      return null;
+    case 'offline':
+      return 'agent offline';
+    case 'unauthorized':
+      return 'agent unauthorized';
+    default:
+      return null;
+  }
+}
+
 interface NavItem {
   label: string;
   path: string;
@@ -170,6 +189,7 @@ function RegistryTypeGroup({
                   )}
                 >
                   {conn.name}
+                  {agentWarning(conn) ? ` — ${agentWarning(conn)}` : ''}
                 </Link>
               </div>
             ))}
@@ -209,10 +229,12 @@ function RegistryTypeGroup({
         <div className="ml-3 space-y-0.5 border-l border-sidebar-border pl-2">
           {connections.map((conn) => {
             const isActive = location.pathname.startsWith(`/registry/${conn.id}`);
-            return (
+            const warning = agentWarning(conn);
+            const link = (
               <Link
                 key={conn.id}
                 to={`/registry/${conn.id}`}
+                aria-label={warning ? `${conn.name} — ${warning}` : undefined}
                 className={cn(
                   'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
                   'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
@@ -222,7 +244,23 @@ function RegistryTypeGroup({
                 )}
               >
                 <span className="truncate">{conn.name}</span>
+                {/* Decoration only: the meaning lives in the link's label. */}
+                {warning && (
+                  <span
+                    className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-[hsl(var(--severity-high))]"
+                    aria-hidden="true"
+                  />
+                )}
               </Link>
+            );
+
+            if (!warning) return link;
+
+            return (
+              <Tooltip key={conn.id} delayDuration={0}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{`${conn.name} — ${warning}`}</TooltipContent>
+              </Tooltip>
             );
           })}
         </div>

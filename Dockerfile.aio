@@ -1,0 +1,172 @@
+# syntax=docker/dockerfile:1
+#
+# kianfar/registry-vault-aio — Registry Vault, a CNCF Distribution registry and
+# the Registry Vault agent in a single container.
+#
+#   :80    Registry Vault (UI + API)
+#   :5000  the registry, behind the agent's authenticating proxy
+#   :5080  the agent's management API — bound to loopback, not published
+#
+# tini is PID 1 and the agent is its only child: the agent supervises the
+# registry, and supervises Registry Vault through AGENT_EXTRA_COMMAND. Nothing
+# here is a second init system.
+#
+# The registry half of the image is NOT rebuilt here. `agent/Dockerfile` is the
+# single definition of how the agent, the registry binary, Trivy and the
+# registry configuration are produced; this file consumes its runtime stage as
+# a named build context, so the two images can never drift apart.
+#
+#   docker buildx bake aio            # docker-bake.hcl wires the context up
+#
+# Without bake, supply that half as an image reference:
+#
+#   docker buildx build --load -t kianfar/registry-vault-registry:local agent/
+#   docker buildx build --load -f Dockerfile.aio \
+#     --build-arg AGENT_BASE=kianfar/registry-vault-registry:local \
+#     -t kianfar/registry-vault-aio .
+#
+# The Node stages below are deliberately identical to the root Dockerfile's —
+# same base image, same pnpm version, same production-only install — so the two
+# images share BuildKit cache and behave the same way.
+
+ARG NODE_IMAGE=node:22-alpine
+ARG PNPM_VERSION=11.5.1
+# Default is the named build context from docker-bake.hcl. A build without bake
+# fails loudly on it rather than silently using a stale local image.
+ARG AGENT_BASE=registry-agent
+
+# ---- Install dependencies ----
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS deps
+ARG PNPM_VERSION
+RUN npm install -g pnpm@${PNPM_VERSION}
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY packages/shared/package.json ./packages/shared/
+RUN pnpm install --frozen-lockfile
+
+# ---- Build ----
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS builder
+ARG PNPM_VERSION
+RUN npm install -g pnpm@${PNPM_VERSION}
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
+COPY . .
+RUN pnpm build
+
+# ---- Registry, agent, Trivy ----
+# The runtime stage of agent/Dockerfile, built for $TARGETPLATFORM. Everything
+# taken from it is a static, CGO-free binary, so it runs unchanged on the Node
+# image's Alpine.
+FROM ${AGENT_BASE} AS agent-image
+
+# ---- Production ----
+FROM ${NODE_IMAGE} AS production
+ARG PNPM_VERSION
+
+WORKDIR /app
+
+RUN npm install -g pnpm@${PNPM_VERSION}
+
+# tini reaps zombies and forwards signals to the agent.
+# ca-certificates is what Trivy needs to download its vulnerability database.
+RUN apk add --no-cache ca-certificates tini
+
+# Copy manifests for production-only install
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/api/package.json ./apps/api/
+COPY packages/shared/package.json ./packages/shared/
+
+# Install only the API's production dependencies
+# Native modules (bcrypt, better-sqlite3) need build tools only while they
+# install; removing them in the same layer keeps ~280 MB out of the image.
+RUN apk add --no-cache --virtual .native-build python3 make g++ \
+ && pnpm install --filter @registry-vault/api --prod --frozen-lockfile \
+ && apk del .native-build
+
+# Copy built API
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+
+# Copy built web — NestJS ServeStaticModule expects it at ../../web/dist
+# relative to apps/api/dist, which resolves to apps/web/dist
+COPY --from=builder /app/apps/web/dist ./apps/web/dist
+
+# The registry side, verbatim from the standalone image.
+COPY --from=agent-image /usr/local/bin/registry /usr/local/bin/registry
+COPY --from=agent-image /usr/local/bin/trivy /usr/local/bin/trivy
+COPY --from=agent-image /usr/local/bin/registry-agent /usr/local/bin/registry-agent
+COPY --from=agent-image /etc/distribution/config.yml /etc/distribution/config.yml
+COPY --from=agent-image /etc/distribution/config.yml.dist /etc/distribution/config.yml.dist
+
+RUN mkdir -p /var/lib/registry /var/lib/registry-agent /app/data
+
+# The three secrets have no defaults anywhere in this image: the entrypoint
+# refuses to start without them, rather than inventing a value that would be
+# identical on every installation. It never prints a value.
+COPY <<'EOF' /usr/local/bin/docker-entrypoint.sh
+#!/bin/sh
+# Fail fast, and say exactly what is missing. Values are never echoed.
+set -eu
+
+missing=''
+for name in AGENT_API_KEY JWT_SECRET ADMIN_PASSWORD; do
+	value="$(printenv "$name" || true)"
+	if [ -z "$value" ]; then
+		missing="$missing $name"
+	fi
+done
+
+if [ -n "$missing" ]; then
+	echo "registry-vault-aio: missing required environment variable(s):$missing" >&2
+	echo "registry-vault-aio: supply them at run time, for example" >&2
+	echo "  docker run -e AGENT_API_KEY=\"\$(openssl rand -hex 24)\" \\" >&2
+	echo "             -e JWT_SECRET=\"\$(openssl rand -base64 48)\" \\" >&2
+	echo "             -e ADMIN_PASSWORD=... kianfar/registry-vault-aio" >&2
+	exit 1
+fi
+
+if [ "${#AGENT_API_KEY}" -lt 16 ]; then
+	echo "registry-vault-aio: AGENT_API_KEY must be at least 16 characters" >&2
+	exit 1
+fi
+
+exec "$@"
+EOF
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+
+# No .env file is copied into the image — .dockerignore keeps every env file out
+# of the build context, and NODE_ENV=production makes the API ignore on-disk env
+# files entirely. Everything secret comes from the environment at run time.
+ENV NODE_ENV=production \
+    OTEL_TRACES_EXPORTER=none \
+    PORT=80 \
+    DB_PATH=/app/data/registry-vault.db \
+    REGISTRY_CONFIG=/etc/distribution/config.yml \
+    REGISTRY_STORAGE_ROOT=/var/lib/registry \
+    REGISTRY_INTERNAL_ADDR=127.0.0.1:5001 \
+    AGENT_DATA_DIR=/var/lib/registry-agent \
+    AGENT_LISTEN=:5000 \
+    AGENT_API_LISTEN=127.0.0.1:5080 \
+    AGENT_EXTRA_COMMAND="node /app/apps/api/dist/main.js" \
+    EMBEDDED_REGISTRY_URL=http://127.0.0.1:5000 \
+    EMBEDDED_AGENT_URL=http://127.0.0.1:5080
+
+# 5080 is deliberately absent: the management API listens on loopback, and
+# Registry Vault — inside this same container — is its only client. Publishing
+# it means setting AGENT_API_LISTEN=:5080 as well as -p.
+EXPOSE 80 5000
+
+VOLUME ["/var/lib/registry", "/var/lib/registry-agent", "/app/data"]
+
+# Both halves have to answer: the agent's unauthenticated liveness endpoint and
+# Registry Vault's HTTP server. start-period covers the first-start migration
+# and admin seeding.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --quiet --spider --tries=1 http://127.0.0.1:5080/healthz \
+        && wget --quiet --spider --tries=1 http://127.0.0.1/ || exit 1
+
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/usr/local/bin/registry-agent"]

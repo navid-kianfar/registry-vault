@@ -1,0 +1,58 @@
+# The registry and its agent (kianfar/registry-vault-registry) in one container,
+# Registry Vault (kianfar/registry-vault) in another, wired together.
+#
+# This is the same system as docker-compose.aio.yml, split in two: the registry
+# can be restarted, scaled onto its own host or given its own storage without
+# touching Registry Vault.
+#
+#   cp .env.example .env     # then fill in the three required secrets
+#   docker compose -f docker-compose.registry.yml up -d
+#
+#   Registry Vault  http://localhost:8080
+#   registry        docker login localhost:5000
+#
+# Compose reads .env from this directory for the ${...} values below. Each
+# container is given only the variables it needs, and an unset secret fails
+# here with a clear message.
+services:
+  registry:
+    image: kianfar/registry-vault-registry
+    ports:
+      - "5000:5000"   # the registry, behind the agent's authenticating proxy
+      # :5080 is deliberately not published. The agent's management API is
+      # reachable only over this compose network, by registry-vault.
+    environment:
+      AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY in .env — openssl rand -hex 24}
+      # Reverse proxy in front of :5000 terminating TLS? List it (see .env.example).
+      AGENT_TRUSTED_PROXIES: ${AGENT_TRUSTED_PROXIES:-127.0.0.0/8,::1/128}
+    volumes:
+      - registry-storage:/var/lib/registry
+      - registry-agent-data:/var/lib/registry-agent
+    restart: unless-stopped
+
+  registry-vault:
+    image: kianfar/registry-vault
+    depends_on:
+      - registry
+    ports:
+      - "8080:80"
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env — openssl rand -base64 48}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      # The same key the agent was given: Registry Vault uses it as the bearer
+      # token for the management API and as the service principal's password on
+      # the registry itself. Rotating it means changing this one value.
+      AGENT_API_KEY: ${AGENT_API_KEY:?set AGENT_API_KEY in .env — openssl rand -hex 24}
+      # Registering the registry on every start keeps the stored connection in
+      # step with a rotated key. Both URLs are on the compose network, not the
+      # host: clients still push to localhost:5000.
+      EMBEDDED_REGISTRY_URL: http://registry:5000
+      EMBEDDED_AGENT_URL: http://registry:5080
+    volumes:
+      - registry-vault-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  registry-storage:
+  registry-agent-data:
+  registry-vault-data:

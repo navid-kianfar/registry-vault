@@ -27,8 +27,8 @@ export class WebhookEntity {
   @Column({ default: true })
   isActive!: boolean;
 
-  @Column({ nullable: true })
-  secret?: string;
+  @Column({ type: 'varchar', nullable: true })
+  secret?: string | null;
 
   @Column({ nullable: true })
   lastTriggeredAt?: string;

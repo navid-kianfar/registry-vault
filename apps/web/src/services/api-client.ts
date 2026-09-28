@@ -45,6 +45,29 @@ import type {
   ICreateUserRequest,
   IUpdateUserRequest,
   IChangePasswordRequest,
+  AgentLogSource,
+  IAgentGcJob,
+  IAgentHealth,
+  IAgentInfo,
+  IAgentLogs,
+  IAgentMaintenance,
+  IAgentOverviewItem,
+  IAgentSettings,
+  IAgentStorage,
+  IAgentTestRequest,
+  IAgentUploads,
+  ICreateRegistryUserRequest,
+  IDockerPullStats,
+  IPurgeUploadsRequest,
+  IPurgeUploadsResult,
+  IRegistryUser,
+  IRegistryUserResult,
+  IRemoveRepositoryRequest,
+  IScanRequest,
+  IScanResult,
+  IStartGcRequest,
+  IUpdateMaintenanceRequest,
+  IUpdateRegistryUserRequest,
 } from '@registry-vault/shared';
 
 export interface IApiClient {
@@ -112,4 +135,33 @@ export interface IApiClient {
   bulkDelete(request: IBulkDeleteRequest): Promise<ApiResponse<IBulkDeleteResult>>;
   cleanupVersions(request: ICleanupVersionsRequest): Promise<ApiResponse<IBulkDeleteResult>>;
   repairRegistry(request: IRegistryRepairRequest): Promise<ApiResponse<IRegistryRepairResult>>;
+
+  // Registry agent — relayed under /api/registries/:connectionId/agent/...
+  // 404 means no agent is configured, 502 means it could not be reached.
+  testAgent(request: IAgentTestRequest): Promise<ApiResponse<IAgentInfo>>;
+  testConnectionAgent(connectionId: string, request: IAgentTestRequest): Promise<ApiResponse<IAgentInfo>>;
+  getAgentsOverview(): Promise<ApiResponse<IAgentOverviewItem[]>>;
+  getAgentHealth(connectionId: string): Promise<ApiResponse<IAgentHealth>>;
+  getAgentStorage(connectionId: string, refresh: boolean): Promise<ApiResponse<IAgentStorage>>;
+  getAgentGcJob(connectionId: string): Promise<ApiResponse<IAgentGcJob | null>>;
+  getAgentGcHistory(connectionId: string): Promise<ApiResponse<IAgentGcJob[]>>;
+  startAgentGc(connectionId: string, request: IStartGcRequest): Promise<ApiResponse<IAgentGcJob>>;
+  removeAgentRepository(connectionId: string, request: IRemoveRepositoryRequest): Promise<ApiResponse<void>>;
+  getAgentUploads(connectionId: string, olderThanHours: number): Promise<ApiResponse<IAgentUploads>>;
+  purgeAgentUploads(connectionId: string, request: IPurgeUploadsRequest): Promise<ApiResponse<IPurgeUploadsResult>>;
+  getAgentMaintenance(connectionId: string): Promise<ApiResponse<IAgentMaintenance>>;
+  updateAgentMaintenance(connectionId: string, request: IUpdateMaintenanceRequest): Promise<ApiResponse<IAgentMaintenance>>;
+  getAgentLogs(connectionId: string, source: AgentLogSource, lines: number): Promise<ApiResponse<IAgentLogs>>;
+  restartAgentRegistry(connectionId: string): Promise<ApiResponse<{ restarting: boolean }>>;
+  getAgentSettings(connectionId: string): Promise<ApiResponse<IAgentSettings>>;
+  updateAgentSettings(connectionId: string, request: IAgentSettings): Promise<ApiResponse<IAgentSettings>>;
+  getRegistryUsers(connectionId: string): Promise<ApiResponse<IRegistryUser[]>>;
+  createRegistryUser(connectionId: string, request: ICreateRegistryUserRequest): Promise<ApiResponse<IRegistryUserResult>>;
+  updateRegistryUser(connectionId: string, username: string, request: IUpdateRegistryUserRequest): Promise<ApiResponse<IRegistryUserResult>>;
+  deleteRegistryUser(connectionId: string, username: string): Promise<ApiResponse<void>>;
+
+  // Docker scans and pull statistics (agent-backed)
+  getDockerPullStats(repositoryId: string, days: number): Promise<ApiResponse<IDockerPullStats>>;
+  getTagScan(repositoryId: string, tagName: string): Promise<ApiResponse<IScanResult | null>>;
+  startTagScan(repositoryId: string, tagName: string, request: IScanRequest): Promise<ApiResponse<IScanResult>>;
 }

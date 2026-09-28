@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -6,7 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RegistryBadge } from '@/components/shared/registry-badge';
-import { ExternalLink, User, Plus, Pencil, Trash2, KeyRound, RefreshCw, Stethoscope } from 'lucide-react';
+import { ExternalLink, User, Plus, Pencil, Trash2, KeyRound, RefreshCw, Stethoscope, Wrench } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { AgentStatusBadge } from '@/components/shared/agent-status-badge';
+import { Notice } from '@/components/shared/notice';
+import { useIsAdmin } from '@/hooks/use-is-admin';
+import { useTestAgent } from '@/services/queries/agent.queries';
 import { RegistryType, CredentialAuthType } from '@registry-vault/shared';
 import {
   Dialog,
@@ -39,6 +45,9 @@ import {
 } from '@/services/queries/auth.queries';
 import { useRepairRegistry } from '@/services/queries/bulk-operations.queries';
 import type { IRegistryConnection, IRegistryRepairResult } from '@registry-vault/shared';
+
+/** The agent refuses to start below this, so a shorter key can never work. */
+const MIN_AGENT_KEY_LENGTH = 16;
 
 const REGISTRY_TYPE_PLACEHOLDERS: Record<RegistryType, string> = {
   [RegistryType.Docker]: 'http://registry.example.com:5000',
@@ -75,6 +84,12 @@ export default function RegistryConnections() {
   const [formUsername, setFormUsername] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formHeaderName, setFormHeaderName] = useState('');
+  const [formAgentUrl, setFormAgentUrl] = useState('');
+  const [formAgentKey, setFormAgentKey] = useState('');
+
+  const isAdmin = useIsAdmin();
+  const testAgent = useTestAgent();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   function openCreate() {
     setEditing(null);
@@ -85,6 +100,9 @@ export default function RegistryConnections() {
     setFormUsername('');
     setFormPassword('');
     setFormHeaderName('');
+    setFormAgentUrl('');
+    setFormAgentKey('');
+    testAgent.reset();
     setDialogOpen(true);
   }
 
@@ -98,6 +116,9 @@ export default function RegistryConnections() {
     setFormUsername(existingCred?.username ?? conn.username ?? '');
     setFormPassword('');
     setFormHeaderName(existingCred?.headerName ?? '');
+    setFormAgentUrl(conn.agent?.url ?? '');
+    setFormAgentKey('');
+    testAgent.reset();
     setDialogOpen(true);
   }
 
@@ -133,27 +154,53 @@ export default function RegistryConnections() {
   }
 
   function handleSubmit() {
+    const isDocker = formType === RegistryType.Docker;
+    // An empty agent URL on a connection that had one removes the agent; an
+    // empty key means "keep the stored one", so it is omitted rather than sent.
+    const agentFields = isDocker
+      ? {
+          agentUrl: editing?.agent || formAgentUrl ? formAgentUrl : undefined,
+          agentApiKey: formAgentKey || undefined,
+        }
+      : {};
+
     if (editing) {
       updateMutation.mutate(
-        { id: editing.id, request: { name: formName, url: formUrl } },
+        { id: editing.id, request: { name: formName, url: formUrl, ...agentFields } },
         {
           onSuccess: () => {
             saveCredentialIfNeeded(editing.id);
-            setDialogOpen(false);
+            closeDialog();
           },
         },
       );
     } else {
       createMutation.mutate(
-        { registryType: formType, name: formName, url: formUrl },
+        { registryType: formType, name: formName, url: formUrl, ...agentFields },
         {
           onSuccess: (response) => {
             saveCredentialIfNeeded(response.data.id);
-            setDialogOpen(false);
+            closeDialog();
           },
         },
       );
     }
+  }
+
+  function closeDialog() {
+    setDialogOpen(false);
+    // Drop the deep-link parameter so a refresh does not reopen the dialog.
+    if (searchParams.has('edit')) {
+      searchParams.delete('edit');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }
+
+  function handleTestAgent() {
+    testAgent.mutate({
+      connectionId: editing?.id,
+      request: { url: formAgentUrl, apiKey: formAgentKey || undefined },
+    });
   }
 
   function handleDelete() {
@@ -192,6 +239,34 @@ export default function RegistryConnections() {
   const hasCredential = (connId: string) => credentials?.some((c) => c.registryConnectionId === connId) ?? false;
   const isPending = createMutation.isPending || updateMutation.isPending;
 
+  const editParam = searchParams.get('edit');
+  // Every "Set up an agent" action in the app lands here with ?edit=<id>.
+  useEffect(() => {
+    if (!editParam || !connections) return;
+    const target = connections.find((conn) => conn.id === editParam);
+    if (!target) return;
+    setEditing((current) => {
+      if (current?.id === target.id) return current;
+      setFormType(target.registryType);
+      setFormName(target.name);
+      setFormUrl(target.url);
+      setFormAgentUrl(target.agent?.url ?? '');
+      setFormAgentKey('');
+      setDialogOpen(true);
+      return target;
+    });
+  }, [editParam, connections]);
+
+  const isAgentKeyTooShort = formAgentKey.length > 0 && formAgentKey.length < MIN_AGENT_KEY_LENGTH;
+  // The API refuses an agent URL change that does not carry the key again: it
+  // cannot know the stored key still belongs to the new address.
+  const hasAgentUrlChanged =
+    formType === RegistryType.Docker && formAgentUrl !== (editing?.agent?.url ?? '');
+  const isAgentKeyRequired = hasAgentUrlChanged && formAgentUrl.length > 0;
+  const isAgentKeyMissing = isAgentKeyRequired && formAgentKey.length === 0;
+  // Changing where the registry lives invalidates the secret stored against it.
+  const hasRegistryUrlChanged = !!editing && formUrl !== editing.url;
+
   if (isLoading) {
     return (
       <Card>
@@ -211,7 +286,7 @@ export default function RegistryConnections() {
   }
 
   return (
-    <>
+    <TooltipProvider>
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
@@ -248,6 +323,19 @@ export default function RegistryConnections() {
                     {connection.isDefault && (
                       <Badge variant="secondary" className="text-[11px]">Default</Badge>
                     )}
+                    {connection.isEmbedded && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span tabIndex={0} className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+                            <Badge variant="outline" className="text-[11px]">Embedded</Badge>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          This registry runs inside the Registry Vault container. Its address and
+                          agent key come from the container's environment.
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                     {hasCredential(connection.id) && (
                       <KeyRound className="h-3.5 w-3.5 text-muted-foreground" aria-label="Credentials configured" />
                     )}
@@ -264,6 +352,22 @@ export default function RegistryConnections() {
                       </span>
                     )}
                   </div>
+                  {connection.registryType === RegistryType.Docker && (
+                    connection.agent ? (
+                      <AgentStatusBadge agent={connection.agent} showVersion />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No agent — pull counts, garbage collection and scans are unavailable.{' '}
+                        <button
+                          type="button"
+                          onClick={() => openEdit(connection)}
+                          className="rounded text-primary underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        >
+                          Add one
+                        </button>
+                      </p>
+                    )
+                  )}
                 </div>
 
                 <div className="ml-4 flex items-center gap-3">
@@ -285,6 +389,7 @@ export default function RegistryConnections() {
                       onClick={() => syncMutation.mutate(connection.id)}
                       disabled={syncMutation.isPending || syncAllMutation.isPending}
                       title="Sync this registry"
+                      aria-label={`Sync ${connection.name}`}
                     >
                       <RefreshCw className={`h-3.5 w-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
                     </Button>
@@ -295,21 +400,49 @@ export default function RegistryConnections() {
                         className="h-8 w-8"
                         onClick={() => { setRepairing(connection); setRepairDialogOpen(true); }}
                         title="Scan for half-deleted tags"
+                        aria-label={`Scan ${connection.name} for half-deleted tags`}
                       >
                         <Stethoscope className="h-3.5 w-3.5" />
                       </Button>
                     )}
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(connection)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
+                    {connection.agent && (
+                      <Button
+                        asChild
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title={`Open maintenance for ${connection.name}`}
+                        aria-label={`Open maintenance for ${connection.name}`}
+                      >
+                        <Link to={`/registry/${connection.id}/maintenance`}>
+                          <Wrench className="h-3.5 w-3.5" />
+                        </Link>
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => { setDeleting(connection); setDeleteDialogOpen(true); }}
+                      className="h-8 w-8"
+                      onClick={() => openEdit(connection)}
+                      title={`Edit ${connection.name}`}
+                      aria-label={`Edit ${connection.name}`}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Pencil className="h-3.5 w-3.5" />
                     </Button>
+                    {/* An embedded registry comes from the container's env: no
+                        delete could ever succeed, so none is offered. */}
+                    {!connection.isEmbedded && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => { setDeleting(connection); setDeleteDialogOpen(true); }}
+                        title={`Delete ${connection.name}`}
+                        aria-label={`Delete ${connection.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -325,8 +458,8 @@ export default function RegistryConnections() {
       </Card>
 
       {/* Create / Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={dialogOpen} onOpenChange={(open) => (open ? setDialogOpen(true) : closeDialog())}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editing ? 'Edit Registry Connection' : 'Add Registry Connection'}</DialogTitle>
             <DialogDescription>
@@ -377,6 +510,12 @@ export default function RegistryConnections() {
               <p className="text-xs text-muted-foreground">
                 The full URL of your registry server, including port if non-standard.
               </p>
+              {hasRegistryUrlChanged && (
+                <Notice tone="warning">
+                  Saving a new URL clears the stored credential for this registry. Re-enter its
+                  password or token under Authentication below, or the next sync will fail.
+                </Notice>
+              )}
             </div>
             <div className="border-t pt-4 space-y-3">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Authentication</p>
@@ -479,12 +618,121 @@ export default function RegistryConnections() {
                 </div>
               )}
             </div>
+            {formType === RegistryType.Docker && (
+              <div className="border-t pt-4 space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Registry agent (optional)
+                </p>
+
+                <div className="space-y-2">
+                  <Label htmlFor="agentUrl">Agent URL</Label>
+                  <Input
+                    id="agentUrl"
+                    value={formAgentUrl}
+                    disabled={editing?.isEmbedded}
+                    readOnly={editing?.isEmbedded}
+                    onChange={(e) => setFormAgentUrl(e.target.value)}
+                    placeholder="http://registry:5080"
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The agent's management API. It is reached by Registry Vault, not by your
+                    browser, so an internal address is fine.
+                  </p>
+                  {editing?.agent && !formAgentUrl && (
+                    <Notice tone="warning">
+                      Saving with an empty URL removes the agent from this connection. Pull counts
+                      and scan results already collected are kept.
+                    </Notice>
+                  )}
+                </div>
+
+                {isAdmin && (
+                  <div className="space-y-2">
+                    <Label htmlFor="agentApiKey">
+                      API Key
+                      {editing?.agent && !isAgentKeyRequired && (
+                        <span className="text-muted-foreground font-normal ml-1">(leave blank to keep current)</span>
+                      )}
+                      {isAgentKeyRequired && (
+                        <span className="text-muted-foreground font-normal ml-1">(required)</span>
+                      )}
+                    </Label>
+                    <Input
+                      id="agentApiKey"
+                      type="password"
+                      value={formAgentKey}
+                      disabled={editing?.isEmbedded}
+                      readOnly={editing?.isEmbedded}
+                      onChange={(e) => setFormAgentKey(e.target.value)}
+                      placeholder={editing?.agent ? '••••••••' : 'Enter the agent API key'}
+                      autoComplete="new-password"
+                      aria-invalid={isAgentKeyTooShort || isAgentKeyMissing}
+                      aria-describedby="agentApiKeyHelp"
+                    />
+                    <p
+                      id="agentApiKeyHelp"
+                      className={`text-xs ${isAgentKeyTooShort || isAgentKeyMissing ? 'text-destructive' : 'text-muted-foreground'}`}
+                    >
+                      {isAgentKeyTooShort
+                        ? `The agent requires a key of at least ${MIN_AGENT_KEY_LENGTH} characters.`
+                        : isAgentKeyMissing
+                          ? 'Enter the API key for this agent — changing the agent URL requires it, because the stored key belongs to the old address.'
+                          : 'Stored encrypted. It is never sent back to the browser.'}
+                    </p>
+                  </div>
+                )}
+
+                {editing?.isEmbedded && (
+                  <p className="text-xs text-muted-foreground">
+                    Set by the container's environment (AGENT_API_KEY). Change it there and restart.
+                  </p>
+                )}
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 shrink-0"
+                    disabled={!formAgentUrl || testAgent.isPending}
+                    onClick={handleTestAgent}
+                  >
+                    <Stethoscope className="h-4 w-4" />
+                    {testAgent.isPending ? 'Testing…' : 'Test agent'}
+                  </Button>
+
+                  {testAgent.isSuccess && testAgent.data && (
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-sm">
+                        <span className="font-medium">Agent online</span>
+                        <span className="text-muted-foreground">
+                          {' '}· v{testAgent.data.data.version} · registry {testAgent.data.data.registryVersion}
+                        </span>
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {testAgent.data.data.features.map((feature) => (
+                          <Badge key={feature} variant="outline" className="px-1 py-0 font-mono text-[10px]">
+                            {feature}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {testAgent.isError && (
+                    <p className="text-sm text-destructive">
+                      Could not reach the agent — {testAgent.error.message}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={closeDialog}>Cancel</Button>
             <Button
               onClick={handleSubmit}
-              disabled={!formName || !formUrl || isPending}
+              disabled={!formName || !formUrl || isAgentKeyTooShort || isAgentKeyMissing || isPending}
             >
               {isPending ? 'Saving...' : 'Save'}
             </Button>
@@ -588,6 +836,6 @@ export default function RegistryConnections() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </TooltipProvider>
   );
 }
