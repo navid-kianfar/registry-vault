@@ -15,17 +15,15 @@ import type {
   IRegistryCredential,
   ICreateCredentialRequest,
   IUpdateCredentialRequest,
+  IRetentionRunResult,
 } from '@registry-vault/shared';
 import { GeneralSettingsEntity } from './entities/general-settings.entity';
 import { RegistryConnectionEntity } from './entities/registry-connection.entity';
 import { RegistryCredentialEntity } from './entities/registry-credential.entity';
 import { RetentionPolicyEntity } from './entities/retention-policy.entity';
 import { WebhookEntity } from './entities/webhook.entity';
-import { DockerTagEntity } from '../docker/entities/docker-tag.entity';
-import { NpmPackageVersionEntity } from '../npm/entities/npm-package-version.entity';
-import { NuGetPackageVersionEntity } from '../nuget/entities/nuget-package-version.entity';
-import { RegistryType } from '@registry-vault/shared';
 import { CredentialCryptoService } from '../common/crypto/credential-crypto.service';
+import { BulkService } from '../bulk/bulk.service';
 
 @Injectable()
 export class SettingsService {
@@ -40,13 +38,8 @@ export class SettingsService {
     private readonly retentionPolicyRepository: Repository<RetentionPolicyEntity>,
     @InjectRepository(WebhookEntity)
     private readonly webhookRepository: Repository<WebhookEntity>,
-    @InjectRepository(DockerTagEntity)
-    private readonly dockerTagRepository: Repository<DockerTagEntity>,
-    @InjectRepository(NpmPackageVersionEntity)
-    private readonly npmVersionRepository: Repository<NpmPackageVersionEntity>,
-    @InjectRepository(NuGetPackageVersionEntity)
-    private readonly nugetVersionRepository: Repository<NuGetPackageVersionEntity>,
     private readonly credentialCrypto: CredentialCryptoService,
+    private readonly bulkService: BulkService,
   ) {}
 
   async getGeneralSettings(): Promise<IGeneralSettings> {
@@ -215,78 +208,16 @@ export class SettingsService {
     await this.retentionPolicyRepository.remove(entity);
   }
 
-  async runRetentionPolicy(id: string): Promise<{ deleted: number }> {
+  /**
+   * Run a retention policy now. Deletes from the registry itself through the
+   * same path as a manual cleanup; removing only the local rows freed nothing
+   * and the next sync brought every version back.
+   */
+  async runRetentionPolicy(id: string): Promise<IRetentionRunResult> {
     const policy = await this.retentionPolicyRepository.findOne({ where: { id } });
     if (!policy) throw new NotFoundException(`Retention policy with id "${id}" not found`);
 
-    const olderThanDate = policy.olderThanDays
-      ? new Date(Date.now() - policy.olderThanDays * 24 * 60 * 60 * 1000)
-      : undefined;
-
-    let deleted = 0;
-
-    if (policy.registryType === RegistryType.Docker) {
-      const repoIds: { repositoryId: string }[] = await this.dockerTagRepository
-        .createQueryBuilder('tag')
-        .select('DISTINCT tag.repositoryId', 'repositoryId')
-        .getRawMany();
-
-      for (const { repositoryId } of repoIds) {
-        const tags = await this.dockerTagRepository.find({
-          where: { repositoryId },
-          order: { pushedAt: 'DESC' },
-        });
-        const toDelete = this.selectForCleanup(tags, policy.keepLastN, olderThanDate, (t) => new Date(t.pushedAt));
-        if (toDelete.length > 0) {
-          await this.dockerTagRepository.remove(toDelete);
-          deleted += toDelete.length;
-        }
-      }
-    } else if (policy.registryType === RegistryType.NPM) {
-      const packageIds: { packageId: string }[] = await this.npmVersionRepository
-        .createQueryBuilder('v')
-        .select('DISTINCT v.packageId', 'packageId')
-        .getRawMany();
-
-      for (const { packageId } of packageIds) {
-        const versions = await this.npmVersionRepository.find({
-          where: { packageId },
-          order: { publishedAt: 'DESC' },
-        });
-        const toDelete = this.selectForCleanup(versions, policy.keepLastN, olderThanDate, (v) => new Date(v.publishedAt));
-        if (toDelete.length > 0) {
-          await this.npmVersionRepository.remove(toDelete);
-          deleted += toDelete.length;
-        }
-      }
-    } else if (policy.registryType === RegistryType.NuGet) {
-      const packageIds: { nugetPackageId: string }[] = await this.nugetVersionRepository
-        .createQueryBuilder('v')
-        .select('DISTINCT v.nugetPackageId', 'nugetPackageId')
-        .getRawMany();
-
-      for (const { nugetPackageId } of packageIds) {
-        const versions = await this.nugetVersionRepository.find({
-          where: { nugetPackageId },
-          order: { publishedAt: 'DESC' },
-        });
-        const toDelete = this.selectForCleanup(versions, policy.keepLastN, olderThanDate, (v) => new Date(v.publishedAt));
-        if (toDelete.length > 0) {
-          await this.nugetVersionRepository.remove(toDelete);
-          deleted += toDelete.length;
-        }
-      }
-    }
-
-    return { deleted };
-  }
-
-  private selectForCleanup<T>(items: T[], keepLastN: number | undefined, olderThan: Date | undefined, getDate: (item: T) => Date): T[] {
-    let candidates = keepLastN !== undefined ? items.slice(keepLastN) : [...items];
-    if (olderThan) {
-      candidates = candidates.filter((item) => getDate(item) < olderThan);
-    }
-    return candidates;
+    return this.bulkService.runRetention(policy);
   }
 
   private mapWebhook(entity: WebhookEntity): IWebhook {

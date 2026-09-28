@@ -39,6 +39,7 @@ import type {
   IBulkDeleteRequest,
   IBulkDeleteResult,
   ICleanupVersionsRequest,
+  IRetentionRunResult,
   IRegistryRepairRequest,
   IRegistryRepairResult,
   ICreateUserRequest,
@@ -90,7 +91,7 @@ export interface IApiClient {
   createRetentionPolicy(request: ICreateRetentionPolicyRequest): Promise<ApiResponse<IRetentionPolicy>>;
   updateRetentionPolicy(id: string, request: IUpdateRetentionPolicyRequest): Promise<ApiResponse<IRetentionPolicy>>;
   deleteRetentionPolicy(id: string): Promise<ApiResponse<void>>;
-  runRetentionPolicy(id: string): Promise<ApiResponse<{ deleted: number }>>;
+  runRetentionPolicy(id: string): Promise<ApiResponse<IRetentionRunResult>>;
   getWebhooks(): Promise<ApiResponse<IWebhook[]>>;
   createWebhook(request: ICreateWebhookRequest): Promise<ApiResponse<IWebhook>>;
   updateWebhook(id: string, request: IUpdateWebhookRequest): Promise<ApiResponse<IWebhook>>;

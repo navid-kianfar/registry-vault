@@ -11,6 +11,7 @@ import type {
   ICreateWebhookRequest,
   IUpdateWebhookRequest,
   IRegistrySyncResult,
+  IRetentionRunResult,
 } from '@registry-vault/shared';
 import { SettingsService } from './settings.service';
 import { RegistrySyncService } from '../registry-sync/registry-sync.service';
@@ -97,7 +98,7 @@ export class SettingsController {
   }
 
   @Post('retention/:id/run')
-  async runRetentionPolicy(@Param('id') id: string): Promise<{ deleted: number }> {
+  async runRetentionPolicy(@Param('id') id: string): Promise<IRetentionRunResult> {
     return this.settingsService.runRetentionPolicy(id);
   }
 

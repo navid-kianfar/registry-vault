@@ -23,6 +23,16 @@ export interface DockerTagDeleteResult extends DockerDeleteResult {
   removedTags: string[];
 }
 
+export interface DockerTagBatchDeleteResult {
+  /** Every tag the registry no longer has, including siblings of a deleted digest. */
+  removedTags: string[];
+  /** Requested tags still on the registry, with the reason. */
+  failures: { tag: string; reason: string }[];
+}
+
+/** Parallel manifest lookups per repository — enough to be fast, few enough not to swamp a small registry. */
+const DIGEST_LOOKUP_CONCURRENCY = 8;
+
 export interface DockerDeleteOutcome {
   requested: number;
   deleted: number;
@@ -307,6 +317,14 @@ export class DockerRegistryConnector {
     }
   }
 
+  /**
+   * List a repository's tags.
+   *
+   * An empty array means the registry has no tags for it (including a 404 for
+   * a repository that no longer exists). Any other failure throws: treating
+   * an unreachable registry as "no tags" made a sync drop live repositories
+   * and a delete report nothing to do.
+   */
   async listTags(
     url: string,
     repository: string,
@@ -314,30 +332,26 @@ export class DockerRegistryConnector {
     username?: string,
     password?: string,
   ): Promise<string[]> {
-    try {
-      const baseUrl = this.normalizeUrl(url);
-      const headers = this.resolveAuthHeaders(token, username, password);
+    const baseUrl = this.normalizeUrl(url);
+    const headers = this.resolveAuthHeaders(token, username, password);
 
-      const response = await this.fetchWithTimeout(
-        `${baseUrl}/v2/${repository}/tags/list`,
-        { method: 'GET', headers },
-      );
+    const response = await this.fetchWithTimeout(
+      `${baseUrl}/v2/${repository}/tags/list`,
+      { method: 'GET', headers },
+    );
 
-      if (!response.ok) {
-        this.logger.warn(
-          `listTags for ${repository} failed with status ${response.status}`,
-        );
-        return [];
-      }
-
-      const body = await response.json() as DockerTagsResponse;
-      return body.tags ?? [];
-    } catch (error: unknown) {
-      this.logger.error(
-        `listTags failed for ${repository}: ${(error as Error).message}`,
-      );
+    if (response.status === 404) {
+      await this.discardBody(response);
       return [];
     }
+
+    if (!response.ok) {
+      await this.discardBody(response);
+      throw new Error(`Listing tags of ${repository} failed with HTTP ${response.status}`);
+    }
+
+    const body = await response.json() as DockerTagsResponse;
+    return body.tags ?? [];
   }
 
   /**
@@ -466,6 +480,7 @@ export class DockerRegistryConnector {
     // HEAD is the cheap path; some proxies drop it, so fall back to GET.
     for (const method of ['HEAD', 'GET'] as const) {
       const response = await this.fetchWithTimeout(manifestUrl, { method, headers });
+      await this.discardBody(response);
       if (response.status === 404) return null;
       if (response.ok) {
         const digest = response.headers.get('docker-content-digest');
@@ -491,51 +506,23 @@ export class DockerRegistryConnector {
     username?: string,
     password?: string,
   ): Promise<DockerDeleteOutcome> {
-    const token = await this.getToken(url, username, password, `repository:${repository}:pull,delete`);
+    const tags = await this.listTags(
+      url, repository,
+      (await this.getToken(url, username, password, `repository:${repository}:pull,delete`)) ?? undefined,
+      username, password,
+    );
+    const result = await this.deleteTags(url, repository, tags, username, password);
 
-    const tags = await this.listTags(url, repository, token ?? undefined, username, password);
-    const outcome: DockerDeleteOutcome = { requested: tags.length, deleted: 0, failures: [] };
-    // Tags sharing a digest are removed by a single DELETE; remember which.
-    const handled = new Set<string>();
-
-    for (const tag of tags) {
-      const digest = await this.getTagDigest(url, repository, tag, token ?? undefined, username, password);
-
-      if (!digest) {
-        // Already gone — either never resolvable or removed with a sibling tag.
-        outcome.deleted++;
-        continue;
-      }
-
-      if (handled.has(digest)) {
-        outcome.deleted++;
-        continue;
-      }
-
-      const result = await this.deleteManifest(
-        url, repository, digest, token ?? undefined, username, password,
-      );
-
-      if (result.ok) {
-        handled.add(digest);
-        outcome.deleted++;
-      } else {
-        outcome.failures.push({ tag, reason: result.reason });
-      }
-    }
-
-    return outcome;
+    return {
+      requested: tags.length,
+      deleted: tags.length - result.failures.length,
+      failures: result.failures,
+    };
   }
 
   /**
    * High-level helper: delete a single tag, leaving the rest of the repository
-   * intact.
-   *
-   * The Registry V2 API has no "delete this tag" call — a delete always targets
-   * a digest, and that removes *every* tag pointing at it. Tags routinely share
-   * a digest (`latest` and the version tag built from it), so the siblings that
-   * go with it are resolved up front and reported in `removedTags`; callers
-   * must reconcile all of them, not just the requested one.
+   * intact. See `deleteTags()` for how shared digests are handled.
    */
   async deleteTagByName(
     url: string,
@@ -545,63 +532,141 @@ export class DockerRegistryConnector {
     password?: string,
     options?: { protectTags?: string[] },
   ): Promise<DockerTagDeleteResult> {
-    const token = await this.getToken(url, username, password, `repository:${repository}:pull,delete`);
-    const auth = token ?? undefined;
-    const digest = await this.getTagDigest(url, repository, tagName, auth, username, password);
+    const result = await this.deleteTags(url, repository, [tagName], username, password, options);
+    const failure = result.failures[0];
 
-    if (!digest) {
-      // Nothing left on the registry to remove.
-      return { ok: true, reason: 'Tag is not present on the registry', removedTags: [tagName] };
-    }
-
-    const siblings = await this.findTagsWithDigest(url, repository, digest, auth, username, password);
-
-    // Refuse when the delete would also take a tag the caller wants kept —
-    // e.g. retention deleting an old version tag that `latest` also points at.
-    const protectedHits = (options?.protectTags ?? []).filter(
-      (protectedTag) => protectedTag !== tagName && siblings.includes(protectedTag),
-    );
-    if (protectedHits.length > 0) {
-      return {
-        ok: false,
-        reason: `Skipped: shares its manifest with ${protectedHits.join(', ')}, which would be deleted too`,
-        removedTags: [],
-      };
-    }
-
-    const result = await this.deleteManifest(url, repository, digest, auth, username, password);
-
-    return {
-      ...result,
-      removedTags: result.ok
-        ? Array.from(new Set([tagName, ...siblings]))
-        : [],
-    };
+    return failure
+      ? { ok: false, reason: failure.reason, removedTags: [] }
+      : { ok: true, reason: 'Deleted', removedTags: result.removedTags };
   }
 
   /**
-   * Every tag in the repository that resolves to `digest` — i.e. the tags a
-   * single manifest delete will take with it.
+   * Delete a set of tags from one repository in a single pass.
+   *
+   * The Registry V2 API has no "delete this tag" call — a delete always targets
+   * a digest, and that removes *every* tag pointing at it. Tags routinely share
+   * a digest (`latest` and the version tag built from it), so every tag's
+   * digest is resolved once up front, the requested tags are grouped by
+   * digest, and each digest is deleted once. Siblings that go with a delete are
+   * reported in `removedTags`; callers must reconcile all of them.
+   *
+   * For a multi-arch tag the digest is the index's, so the whole image goes and
+   * its platform manifests are left for garbage collection.
+   *
+   * Resolving every digest once per repository keeps this linear in the number
+   * of tags. Resolving the whole repository again for each deleted tag made a
+   * "keep the last N" cleanup of a large repository issue tens of thousands of
+   * sequential requests and appear to hang.
    */
-  async findTagsWithDigest(
+  async deleteTags(
     url: string,
     repository: string,
-    digest: string,
-    token?: string,
+    tagNames: string[],
     username?: string,
     password?: string,
-  ): Promise<string[]> {
-    const tags = await this.listTags(url, repository, token, username, password);
-    const matches: string[] = [];
+    options?: { protectTags?: string[] },
+  ): Promise<DockerTagBatchDeleteResult> {
+    const result: DockerTagBatchDeleteResult = { removedTags: [], failures: [] };
+    const requested = Array.from(new Set(tagNames));
+    if (requested.length === 0) return result;
 
-    for (const tag of tags) {
-      const tagDigest = await this.getTagDigest(url, repository, tag, token, username, password);
-      if (tagDigest === digest) {
-        matches.push(tag);
+    const scope = `repository:${repository}:pull,delete`;
+    let auth = (await this.getToken(url, username, password, scope)) ?? undefined;
+
+    const allTags = await this.listTags(url, repository, auth, username, password);
+    const present = new Set(allTags);
+
+    // Requested tags the registry no longer lists are already gone.
+    const removed = new Set(requested.filter((tag) => !present.has(tag)));
+
+    // Resolve every tag once, so a delete can tell which siblings it takes.
+    const digests = await this.mapWithConcurrency(allTags, DIGEST_LOOKUP_CONCURRENCY, async (tag) => {
+      try {
+        return await this.getTagDigest(url, repository, tag, auth, username, password);
+      } catch (error: unknown) {
+        return error instanceof Error ? error : new Error(String(error));
+      }
+    });
+
+    const tagsByDigest = new Map<string, string[]>();
+    const digestOf = new Map<string, string>();
+    const lookupErrors = new Map<string, Error>();
+    allTags.forEach((tag, i) => {
+      const digest = digests[i];
+      if (digest instanceof Error) {
+        lookupErrors.set(tag, digest);
+        return;
+      }
+      if (!digest) return;
+      digestOf.set(tag, digest);
+      tagsByDigest.set(digest, [...(tagsByDigest.get(digest) ?? []), tag]);
+    });
+
+    const requestedSet = new Set(requested);
+    const protectedTags = new Set((options?.protectTags ?? []).filter((t) => !requestedSet.has(t)));
+    const targets = new Map<string, string[]>();
+
+    requested.forEach((tag) => {
+      if (removed.has(tag)) return;
+      const lookupError = lookupErrors.get(tag);
+      if (lookupError) {
+        result.failures.push({ tag, reason: lookupError.message });
+        return;
+      }
+      const digest = digestOf.get(tag);
+      if (!digest) {
+        // Listed but no longer resolvable — nothing left to delete.
+        removed.add(tag);
+        return;
+      }
+      targets.set(digest, [...(targets.get(digest) ?? []), tag]);
+    });
+
+    // Tokens can be short-lived; take a fresh one for the delete phase.
+    if (targets.size > 0 && auth) {
+      auth = (await this.getToken(url, username, password, scope)) ?? auth;
+    }
+
+    for (const [digest, tags] of targets) {
+      const siblings = tagsByDigest.get(digest) ?? tags;
+
+      // Refuse when the delete would also take a tag the caller wants kept —
+      // e.g. retention deleting an old version tag that `latest` also points at.
+      const protectedHits = siblings.filter((tag) => protectedTags.has(tag));
+      if (protectedHits.length > 0) {
+        const reason = `Skipped: shares its manifest with ${protectedHits.join(', ')}, which would be deleted too`;
+        tags.forEach((tag) => result.failures.push({ tag, reason }));
+        continue;
+      }
+
+      const deleted = await this.deleteManifest(url, repository, digest, auth, username, password);
+      if (deleted.ok) {
+        siblings.forEach((tag) => removed.add(tag));
+      } else {
+        tags.forEach((tag) => result.failures.push({ tag, reason: deleted.reason }));
       }
     }
 
-    return matches;
+    result.removedTags = Array.from(removed);
+    return result;
+  }
+
+  /** Run `fn` over `items` with at most `limit` calls in flight, keeping order. */
+  private async mapWithConcurrency<T, R>(
+    items: T[],
+    limit: number,
+    fn: (item: T) => Promise<R>,
+  ): Promise<R[]> {
+    const results = new Array<R>(items.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < items.length) {
+        const index = next++;
+        results[index] = await fn(items[index]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return results;
   }
 
   /**
@@ -774,6 +839,7 @@ export class DockerRegistryConnector {
         `${baseUrl}/v2/${repository}/manifests/${digest}`,
         { method: 'DELETE', headers: deleteHeaders },
       );
+      await this.discardBody(response);
 
       if (response.status === 202 || response.status === 200) {
         return { ok: true, reason: 'Deleted' };
@@ -869,20 +935,22 @@ export class DockerRegistryConnector {
     url: string,
     init?: RequestInit,
   ): Promise<Response> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
     try {
-      const response = await fetch(url, {
+      // The signal stays armed after the headers arrive, so reading the body
+      // is bounded too. Clearing the timer on headers let a registry that
+      // stalls mid-body (e.g. a full disk) hang a sync or delete forever.
+      return await fetch(url, {
         ...init,
-        signal: controller.signal,
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
-      return response;
     } catch (error: unknown) {
       // Replace Node's opaque "fetch failed" with the underlying cause.
       throw new Error(describeFetchFailure(url, error, this.timeoutMs));
-    } finally {
-      clearTimeout(timeout);
     }
+  }
+
+  /** Release a response body nothing reads, so its connection is reused. */
+  private async discardBody(response: Response): Promise<void> {
+    await response.body?.cancel().catch(() => undefined);
   }
 }

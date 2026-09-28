@@ -75,3 +75,12 @@ export interface ICleanupVersionsRequest {
   /** Delete versions published before this date (ISO string) */
   olderThanDate?: string;
 }
+
+/** Outcome of running a retention policy against the registry. */
+export interface IRetentionRunResult {
+  /** Versions removed from the registry. */
+  deleted: number;
+  /** Versions the policy selected that are still on the registry. */
+  failed: number;
+  failures: IBulkDeleteFailure[];
+}

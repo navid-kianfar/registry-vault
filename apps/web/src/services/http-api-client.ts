@@ -40,6 +40,7 @@ import type {
   IBulkDeleteRequest,
   IBulkDeleteResult,
   ICleanupVersionsRequest,
+  IRetentionRunResult,
   IRegistryRepairRequest,
   IRegistryRepairResult,
   ICreateUserRequest,
@@ -307,7 +308,7 @@ class HttpApiClient implements IApiClient {
     return apiFetch(`/settings/retention/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
-  async runRetentionPolicy(id: string): Promise<ApiResponse<{ deleted: number }>> {
+  async runRetentionPolicy(id: string): Promise<ApiResponse<IRetentionRunResult>> {
     return apiFetch(`/settings/retention/${encodeURIComponent(id)}/run`, { method: 'POST' });
   }
 

@@ -460,6 +460,27 @@ export class RegistrySyncService {
       }
     }
 
+    // Drop mirrored repositories the catalog no longer lists — removed from
+    // the registry's storage, by another client, or by garbage collection.
+    // Only the repositories the catalog *does* list were visited above, so
+    // without this a repository deleted outside the app was shown forever.
+    // Safe because listRepositories() throws rather than returning a partial
+    // or empty list when the registry cannot be read.
+    const goneRepos = await this.dockerRepoRepo.find({
+      where: repoNames.length > 0
+        ? { registryConnectionId: connection.id, name: Not(In(repoNames)) }
+        : { registryConnectionId: connection.id },
+    });
+    if (goneRepos.length > 0) {
+      const goneIds = goneRepos.map((r) => r.id);
+      await this.dockerTagRepo.delete({ repositoryId: In(goneIds) });
+      await this.dockerImageRepo.delete({ repositoryId: In(goneIds) });
+      await this.dockerRepoRepo.remove(goneRepos);
+      this.logger.log(
+        `Removed ${goneRepos.length} repositor${goneRepos.length === 1 ? 'y' : 'ies'} no longer in ${connection.name}: ${goneRepos.slice(0, 5).map((r) => r.name).join(', ')}`,
+      );
+    }
+
     // Update connection status
     connection.isConnected = true;
     await this.connectionRepo.save(connection);
@@ -471,7 +492,7 @@ export class RegistrySyncService {
       registryType: connection.registryType,
       resourceType: 'registry',
       resourceName: connection.name,
-      details: `Synced ${repoNames.length} Docker repositories`,
+      details: `Synced ${repoNames.length} Docker repositories${goneRepos.length > 0 ? `, removed ${goneRepos.length} no longer on the registry` : ''}`,
       ipAddress: 'system',
       success: true,
     }));

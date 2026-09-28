@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../http-api-client';
 import type {
+  IBulkDeleteFailure,
   IBulkDeleteRequest,
   ICleanupVersionsRequest,
   IRegistryRepairRequest,
@@ -13,6 +14,38 @@ export interface BulkCleanupOptions {
   packageIdentifiers: string[];
   keepCount?: number;
   olderThanDate?: string;
+}
+
+/**
+ * Report a cleanup the way the registry saw it: failures are errors, not a
+ * "cleaned up 0" success. Deleting Docker tags only unlinks manifests; the
+ * space comes back when the registry's garbage collector runs.
+ */
+export function reportCleanup(
+  registryType: RegistryType,
+  deleted: number,
+  failures: IBulkDeleteFailure[],
+): void {
+  if (failures.length > 0) {
+    const reason = failures[0]?.reason ?? 'see logs';
+    toast.error(
+      deleted > 0
+        ? `Deleted ${deleted}, failed ${failures.length} — ${reason}`
+        : `Cleanup failed for ${failures.length} version(s) — ${reason}`,
+    );
+    return;
+  }
+
+  if (deleted === 0) {
+    toast.info('Nothing to clean up — no versions matched the rule');
+    return;
+  }
+
+  toast.success(`Deleted ${deleted} old version(s) from the registry`, {
+    description: registryType === RegistryType.Docker
+      ? 'Disk space is freed when the registry runs garbage collection.'
+      : undefined,
+  });
 }
 
 export function useBulkDelete() {
@@ -86,9 +119,9 @@ export function useCleanupVersions() {
       const prefix = request.registryType === RegistryType.Docker ? 'docker'
         : request.registryType === RegistryType.NuGet ? 'nuget' : 'npm';
       queryClient.invalidateQueries({ queryKey: [prefix] });
-      toast.success(`Cleaned up ${response.data.successCount} old versions`);
+      reportCleanup(request.registryType, response.data.successCount, response.data.failures);
     },
-    onError: () => toast.error('Cleanup failed'),
+    onError: (error: Error) => toast.error(error.message || 'Cleanup failed'),
   });
 }
 
@@ -98,6 +131,7 @@ export function useBulkCleanup() {
   return useMutation({
     mutationFn: async (options: BulkCleanupOptions) => {
       let totalCleaned = 0;
+      const failures: IBulkDeleteFailure[] = [];
       for (const packageIdentifier of options.packageIdentifiers) {
         const res = await apiClient.cleanupVersions({
           registryType: options.registryType,
@@ -106,14 +140,15 @@ export function useBulkCleanup() {
           olderThanDate: options.olderThanDate,
         });
         totalCleaned += res.data.successCount;
+        failures.push(...res.data.failures);
       }
-      return totalCleaned;
+      return { totalCleaned, failures };
     },
-    onSuccess: (totalCleaned, options) => {
+    onSuccess: ({ totalCleaned, failures }, options) => {
       const prefix = options.registryType === RegistryType.Docker ? 'docker'
         : options.registryType === RegistryType.NuGet ? 'nuget' : 'npm';
       queryClient.invalidateQueries({ queryKey: [prefix] });
-      toast.success(`Cleaned up ${totalCleaned} old versions across ${options.packageIdentifiers.length} packages`);
+      reportCleanup(options.registryType, totalCleaned, failures);
     },
     onError: () => toast.error('Bulk cleanup failed'),
   });

@@ -9,8 +9,11 @@ import type {
   IUpdateRetentionPolicyRequest,
   ICreateWebhookRequest,
   IUpdateWebhookRequest,
+  IRetentionPolicy,
 } from '@registry-vault/shared';
+import { RegistryType } from '@registry-vault/shared';
 import { toast } from 'sonner';
+import { reportCleanup } from './bulk-operations.queries';
 
 export function useGeneralSettings() {
   return useQuery({
@@ -186,11 +189,14 @@ export function useRunRetentionPolicy() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => apiClient.runRetentionPolicy(id),
-    onSuccess: (response) => {
+    onSuccess: (response, id) => {
       queryClient.invalidateQueries({ queryKey: ['docker'] });
       queryClient.invalidateQueries({ queryKey: ['nuget'] });
       queryClient.invalidateQueries({ queryKey: ['npm'] });
-      toast.success(`Cleanup complete — ${response.data.deleted} item(s) deleted`);
+      const policy = queryClient
+        .getQueryData<{ data: IRetentionPolicy[] }>(queryKeys.settings.retention)
+        ?.data.find((p) => p.id === id);
+      reportCleanup(policy?.registryType ?? RegistryType.Docker, response.data.deleted, response.data.failures);
     },
     onError: (error: Error) => toast.error(error.message || 'Cleanup failed'),
   });
