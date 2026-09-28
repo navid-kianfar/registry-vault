@@ -5,6 +5,10 @@ name: CI
 on:
   pull_request:
   push:
+    # A push filter that names only tags matches no branch push at all, so the
+    # branches must be listed explicitly for CI to run on them.
+    branches:
+      - '**'
     tags-ignore:
       - 'v*'
 
